@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "plasmo dev",
     "build": "plasmo build",
-    "package": "plasmo package"
+    "package": "plasmo package",
+    "test": "vitest run"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.3",
@@ -30,7 +31,8 @@
     "postcss": "^8.5.6",
     "prettier": "3.2.4",
     "tailwindcss": "3",
-    "typescript": "5.3.3"
+    "typescript": "5.3.3",
+    "vitest": "^3.2.4"
   },
   "manifest": {
     "host_permissions": [
