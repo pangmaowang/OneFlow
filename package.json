@@ -6,6 +6,7 @@
   "author": "Pang er ",
   "scripts": {
     "dev": "plasmo dev",
+    "dev:debug": "PLASMO_PUBLIC_AUTOMATION_DEBUG=true plasmo dev",
     "build": "plasmo build",
     "package": "plasmo package",
     "test": "vitest run"
@@ -35,7 +36,12 @@
     "vitest": "^3.2.4"
   },
   "manifest": {
+    "permissions": [
+      "activeTab",
+      "tabs"
+    ],
     "host_permissions": [
+      "http://*/*",
       "https://*/*"
     ]
   }

@@ -12,7 +12,7 @@ import {
   type WorkflowRunRecord
 } from "@/lib/automation"
 import { cn } from "@/lib/utils"
-import { ArrowRight, Bot, Cpu, PenTool, PlusCircle } from "lucide-react"
+import { ArrowRight, BookOpen, Bot, Cpu, PenTool, PlusCircle } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 type QuickAction = {
@@ -27,10 +27,18 @@ type QuickAction = {
 
 const QUICK_ACTIONS: QuickAction[] = [
   {
+    label: "Capture this page",
+    description: "Clean up the active tab and preview the extracted text.",
+    icon: BookOpen,
+    className: "border-primary/30 bg-primary/10 text-primary shadow-sm hover:bg-primary/15",
+    iconClassName: "text-primary",
+    presetId: "page-capture"
+  },
+  {
     label: "Daily dev recap",
     description: "Summarize commits, blockers, and upcoming priorities in seconds.",
     icon: Cpu,
-    className: "border-primary/20 bg-primary/10 text-primary shadow-sm hover:bg-primary/15",
+    className: "hover:border-primary/40 hover:bg-primary/10",
     iconClassName: "text-primary",
     presetId: "daily-dev",
     sampleContent:
@@ -56,6 +64,7 @@ const QUICK_ACTIONS: QuickAction[] = [
 function IndexPopup() {
   const manager = useMemo(() => new WorkflowManager(), [])
   const [runs, setRuns] = useState<WorkflowRunRecord[]>([])
+  const [useSampleData, setUseSampleData] = useState(false)
 
   useEffect(() => manager.subscribe(setRuns), [manager])
 
@@ -99,6 +108,36 @@ function IndexPopup() {
     )
   }, [latestFailure])
 
+  const latestReadMeta = useMemo(() => {
+    const readStep = latestSuccess?.result?.steps.find((entry) => entry.step.type === "read-page")
+    const meta = readStep?.result.meta
+    return meta && typeof meta === "object" ? (meta as Record<string, unknown>) : null
+  }, [latestSuccess])
+
+  const readMetaInfo = useMemo(() => {
+    if (!latestReadMeta) {
+      return null
+    }
+
+    const url = typeof latestReadMeta.url === "string" ? latestReadMeta.url : undefined
+    const title = typeof latestReadMeta.title === "string" ? latestReadMeta.title : undefined
+    const length = typeof latestReadMeta.length === "number" ? latestReadMeta.length : undefined
+    const truncated = Boolean(latestReadMeta.truncated)
+    const fallbackUsed = Boolean(latestReadMeta.fallbackUsed)
+    const debug = Array.isArray(latestReadMeta.debug)
+      ? (latestReadMeta.debug as unknown[]).map(String)
+      : undefined
+
+    return {
+      url,
+      title,
+      length,
+      truncated,
+      fallbackUsed,
+      debug
+    }
+  }, [latestReadMeta])
+
   const handleRunPreset = useCallback(
     (action: QuickAction) => {
       if (!action.presetId) {
@@ -111,13 +150,20 @@ function IndexPopup() {
         return
       }
 
-      manager.enqueue(preset, {
-        context: {
-          pageContent: action.sampleContent
-        }
-      })
+      const context = useSampleData && action.sampleContent
+        ? { pageContent: action.sampleContent }
+        : undefined
+
+      manager.enqueue(
+        preset,
+        context
+          ? {
+              context
+            }
+          : undefined
+      )
     },
-    [manager]
+    [manager, useSampleData]
   )
 
   return (
@@ -148,6 +194,22 @@ function IndexPopup() {
           </p>
         </div>
 
+        <div className="flex items-center justify-between rounded-lg border border-dashed border-muted/40 bg-muted/10 px-3 py-2 text-[11px] text-muted-foreground">
+          <span>Use sample content (dev helper)</span>
+          <Button
+            type="button"
+            variant={useSampleData ? "default" : "ghost"}
+            size="sm"
+            className={cn(
+              "h-6 px-2 text-[11px]",
+              useSampleData ? "bg-primary text-primary-foreground" : "text-muted-foreground"
+            )}
+            onClick={() => setUseSampleData((prev) => !prev)}
+          >
+            {useSampleData ? "On" : "Off"}
+          </Button>
+        </div>
+
         <div className="space-y-2">
           {quickActions.map((action) => {
             const { label, description, icon: Icon, className, iconClassName, presetId } = action
@@ -172,27 +234,27 @@ function IndexPopup() {
                 )}
                 onClick={() => handleRunPreset(action)}
               >
-              <div className="flex w-full items-center justify-between">
-                <span className="flex items-center gap-2 text-sm font-medium">
-                  <Icon className={cn("h-4 w-4", iconClassName ?? "text-primary")} />
-                  {label}
+                <div className="flex w-full items-center justify-between">
+                  <span className="flex items-center gap-2 text-sm font-medium">
+                    <Icon className={cn("h-4 w-4", iconClassName ?? "text-primary")} />
+                    {label}
+                  </span>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
+                </div>
+                <span className="w-full text-xs text-muted-foreground line-clamp-2" title={description}>
+                  {description}
                 </span>
-                <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
-              </div>
-              <span className="w-full text-xs text-muted-foreground line-clamp-2" title={description}>
-                {description}
-              </span>
-              {activeRun ? (
-                <span className="text-[10px] uppercase tracking-wide text-primary">Running…</span>
-              ) : queuedCount > 0 ? (
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  Queued ({queuedCount})
-                </span>
-              ) : failedRun ? (
-                <span className="text-[10px] uppercase tracking-wide text-destructive">
-                  Last run failed
-                </span>
-              ) : null}
+                {activeRun ? (
+                  <span className="text-[10px] uppercase tracking-wide text-primary">Running…</span>
+                ) : queuedCount > 0 ? (
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    Queued ({queuedCount})
+                  </span>
+                ) : failedRun ? (
+                  <span className="text-[10px] uppercase tracking-wide text-destructive">
+                    Last run failed
+                  </span>
+                ) : null}
               </Button>
             )
           })}
@@ -207,6 +269,41 @@ function IndexPopup() {
           <CardContent className="space-y-2">
             {lastError ? (
               <p className="text-xs text-destructive">{lastError}</p>
+            ) : null}
+            {readMetaInfo ? (
+              <div className="rounded-md border border-dashed border-muted/50 bg-muted/20 p-2 text-[11px] leading-relaxed text-muted-foreground">
+                {readMetaInfo.title ? (
+                  <p className="font-medium text-foreground">{readMetaInfo.title}</p>
+                ) : null}
+                {readMetaInfo.url ? (
+                  <p className="truncate">
+                    <span className="text-muted-foreground/80">Source:</span>{" "}
+                    <a
+                      className="text-foreground underline decoration-dotted underline-offset-2"
+                      href={readMetaInfo.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {readMetaInfo.url}
+                    </a>
+                  </p>
+                ) : null}
+                <p>
+                  Characters: {readMetaInfo.length ?? "—"}
+                  {readMetaInfo.truncated ? " (trimmed)" : ""}
+                  {readMetaInfo.fallbackUsed ? " • fallback" : ""}
+                </p>
+                {readMetaInfo.debug && readMetaInfo.debug.length > 0 ? (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer text-muted-foreground/70">
+                      Debug trace
+                    </summary>
+                    <pre className="mt-1 max-h-32 overflow-auto rounded bg-background/60 p-2 text-[10px] leading-snug text-muted-foreground">
+                      {readMetaInfo.debug.join("\n")}
+                    </pre>
+                  </details>
+                ) : null}
+              </div>
             ) : null}
             {lastOutput ? (
               <pre className="max-h-48 overflow-auto rounded-lg bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground">

@@ -40,8 +40,26 @@ export const dailyDeveloperRecap: TaskDefinition = {
   ]
 }
 
-export type PresetId = "daily-dev"
+export const captureActivePage: TaskDefinition = {
+  id: "page-capture",
+  name: "Capture active page",
+  description: "Extract and format the readable content from the current tab.",
+  steps: [
+    {
+      id: "activePage",
+      type: "read-page",
+      description: "Clean up the current page content",
+      config: {
+        source: "active-tab",
+        maxLength: 4000
+      }
+    }
+  ]
+}
+
+export type PresetId = "daily-dev" | "page-capture"
 
 export const PRESET_REGISTRY: Record<PresetId, TaskDefinition> = {
-  "daily-dev": dailyDeveloperRecap
+  "daily-dev": dailyDeveloperRecap,
+  "page-capture": captureActivePage
 }

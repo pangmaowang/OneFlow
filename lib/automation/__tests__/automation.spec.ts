@@ -31,8 +31,10 @@ describe("automation pipeline", () => {
     expect(result.output).toContain("Daily standup recap")
 
     const readStep = result.steps.find((entry) => entry.step.type === "read-page")
-    const meta = (readStep?.result.meta as { truncated?: unknown } | undefined) ?? {}
+    const meta =
+      (readStep?.result.meta as { truncated?: unknown; fromContext?: unknown } | undefined) ?? {}
     expect(meta.truncated).toBe(false)
+    expect(meta.fromContext).toBe(true)
   })
 
   it("falls back to default content and truncates when configured", async () => {
@@ -45,6 +47,7 @@ describe("automation pipeline", () => {
         config: {
           fallback: longFallback,
           maxLength: 10,
+          source: "html",
         },
       },
       input: undefined,
@@ -54,8 +57,40 @@ describe("automation pipeline", () => {
 
     expect(result.success).toBe(true)
     expect(result.output).toBe(`${longFallback.slice(0, 10)}…`)
-    const meta = (result.meta as { truncated?: unknown } | undefined) ?? {}
+    const meta =
+      (result.meta as { truncated?: unknown; fallbackUsed?: unknown } | undefined) ?? {}
     expect(meta.truncated).toBe(true)
+    expect(meta.fallbackUsed).toBe(true)
+  })
+
+  it("sanitizes html payloads when provided directly", async () => {
+    const html = `
+      <article>
+        <h1>Breaking News</h1>
+        <script>window.evil()</script>
+        <p>The build is green and shipping today.</p>
+      </article>
+    `
+
+    const action = requireAction("read-page")
+    const result = await action.run({
+      step: {
+        type: "read-page",
+        config: {
+          source: "html",
+        },
+      },
+      input: undefined,
+      context: {
+        pageContent: html,
+      },
+      cache: new Map(),
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.output).toContain("Breaking News")
+    expect(result.output).toContain("The build is green and shipping today.")
+    expect(result.output).not.toContain("evil")
   })
 })
 

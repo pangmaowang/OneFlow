@@ -1,3 +1,14 @@
+import {
+  formatExtractedContent,
+  normalizeExtractedText,
+  READ_PAGE_MESSAGE,
+  sanitizeHtmlFragment
+} from "./extraction"
+import type {
+  ExtractionResult,
+  ReadPageRequest,
+  ReadPageResponse
+} from "./extraction"
 import type {
   ActionExecutionArgs,
   ActionExecutionResult,
@@ -7,6 +18,11 @@ import type {
   StructuredPromptConfig,
   SummarizeConfig
 } from "./types"
+import {
+  appendDebugTrace,
+  createDebugTrace,
+  createScopedDebugger
+} from "../debug"
 
 const registry = new Map<ActionType, RegisteredAction<ActionType>>()
 
@@ -58,7 +74,7 @@ registerAction("structured-prompt", {
 
 // --- Action implementations ----------------------------------------------
 
-function readPageAction({ step, context }: ActionExecutionArgs<"read-page">) {
+async function readPageAction({ step, context }: ActionExecutionArgs<"read-page">) {
   const config: ReadPageConfig = {
     fallback: step.config?.fallback,
     source: step.config?.source,
@@ -67,26 +83,120 @@ function readPageAction({ step, context }: ActionExecutionArgs<"read-page">) {
     maxLength: step.config?.maxLength
   }
 
-  const content = context.pageContent ?? config.fallback
+  const meta: Record<string, unknown> = {
+    source: config.source ?? "active-tab"
+  }
+  const debugTrace = createDebugTrace()
+  const debugLog = createScopedDebugger("automation/read-page")
+  const logDebug = (stage: string, details: Record<string, unknown> = {}) => {
+    appendDebugTrace(debugTrace, stage, details)
+    debugLog(stage, details)
+  }
 
-  if (!content || typeof content !== "string") {
-    return {
-      success: false,
-      error: new Error("No page content available for read-page action")
+  logDebug("start", {
+    source: config.source ?? "active-tab",
+    hasContext: typeof context.pageContent === "string",
+    hasFallback: typeof config.fallback === "string"
+  })
+
+  const preferSelection = config.source === "selection"
+  let rawContent: string | undefined
+  let fromExtraction = false
+  let extractionError: Error | undefined
+
+  if (!config.source || config.source === "active-tab" || config.source === "selection") {
+    try {
+      const extraction = await readActiveTabContent({
+        selector: config.selector,
+        attribute: config.attribute
+      })
+
+      const extracted = preferSelection && extraction.selection ? extraction.selection : extraction.body
+
+      if (extracted && extracted.trim().length > 0) {
+        rawContent = extracted
+        fromExtraction = true
+        meta.fromExtraction = true
+        logDebug("extraction-success", {
+          bodyLength: extracted.length,
+          selectionUsed: preferSelection && Boolean(extraction.selection)
+        })
+      }
+
+      Object.assign(meta, {
+        title: extraction.title,
+        url: extraction.url,
+        rawLength: extraction.rawLength,
+        selectionLength: extraction.selectionLength,
+        container: extraction.containerTag
+      })
+    } catch (error) {
+      extractionError = error instanceof Error ? error : new Error(String(error))
+      meta.error = extractionError.message
+      logDebug("extraction-error", {
+        message: extractionError.message
+      })
     }
   }
 
-  const normalized =
-    config.maxLength && content.length > config.maxLength
-      ? `${content.slice(0, config.maxLength)}…`
-      : content
+  if (!rawContent) {
+    if (typeof context.pageContent === "string" && context.pageContent.trim().length > 0) {
+      rawContent = context.pageContent
+      meta.fromContext = true
+      meta.rawLength = context.pageContent.length
+      logDebug("using-context", { length: context.pageContent.length })
+    } else if (typeof config.fallback === "string" && config.fallback.trim().length > 0) {
+      rawContent = config.fallback
+      meta.fallbackUsed = true
+      meta.rawLength = config.fallback.length
+      logDebug("using-fallback", { length: config.fallback.length })
+    }
+  }
+
+  if (!rawContent) {
+    logDebug("no-content", { message: extractionError?.message ?? "missing content" })
+    return {
+      success: false,
+      error: extractionError ?? new Error("No page content available for read-page action"),
+      meta: {
+        ...meta,
+        ...(debugTrace ? { debug: debugTrace } : {})
+      }
+    }
+  }
+
+  const cleaned = fromExtraction
+    ? normalizeExtractedText(rawContent)
+    : sanitizeHtmlFragment(rawContent)
+  const trimmed = cleaned.trim()
+
+  const truncated =
+    config.maxLength && trimmed.length > config.maxLength
+      ? `${trimmed.slice(0, config.maxLength)}…`
+      : trimmed
+
+  const formatted = formatExtractedContent({
+    title: typeof meta.title === "string" ? meta.title : undefined,
+    url: typeof meta.url === "string" ? meta.url : undefined,
+    body: truncated
+  })
+
+  const wasTruncated = Boolean(config.maxLength && trimmed.length > config.maxLength)
+
+  logDebug("processed", {
+    fromExtraction,
+    originalLength: trimmed.length,
+    truncated: wasTruncated
+  })
 
   return {
     success: true,
-    output: normalized,
+    output: formatted,
     meta: {
-      length: content.length,
-      truncated: Boolean(config.maxLength && content.length > config.maxLength)
+      ...meta,
+      length: trimmed.length,
+      truncated: wasTruncated,
+      ...(debugTrace ? { debug: debugTrace } : {})
     }
   }
 }
@@ -176,5 +286,82 @@ function structuredPromptAction({
     meta: {
       format: config.outputFormat
     }
+  }
+}
+
+async function readActiveTabContent(options: {
+  selector?: string
+  attribute?: string
+}): Promise<ExtractionResult> {
+  if (
+    typeof chrome === "undefined" ||
+    !chrome.tabs?.query ||
+    !chrome.tabs?.sendMessage
+  ) {
+    throw new Error("Browser page access APIs are not available")
+  }
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+  if (!tab?.id) {
+    throw new Error("No active tab available to read")
+  }
+
+  const request: ReadPageRequest = {
+    type: READ_PAGE_MESSAGE,
+    selector: options.selector ?? null,
+    attribute: options.attribute ?? null
+  }
+
+  const debugLog = createScopedDebugger("automation/read-page")
+  debugLog("sendMessage", {
+    tabId: tab.id,
+    request
+  })
+
+  try {
+    const response = await new Promise<ReadPageResponse>((resolve, reject) => {
+      try {
+        chrome.tabs.sendMessage(tab.id as number, request, (res) => {
+          const lastError = chrome.runtime?.lastError
+          if (lastError) {
+            reject(new Error(lastError.message))
+            return
+          }
+          if (!res) {
+            reject(new Error("No response from content script"))
+            return
+          }
+          resolve(res as ReadPageResponse)
+        })
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
+    })
+
+    debugLog("response", {
+      success: response.success,
+      hasPayload: Boolean(response.payload),
+      error: response.error
+    })
+
+    if (!response.success) {
+      throw new Error(response.error ?? "Active tab did not provide readable content")
+    }
+
+    const payload = response.payload
+    if (!payload || typeof payload.body !== "string") {
+      throw new Error("Content script returned an invalid payload")
+    }
+
+    return payload
+  } catch (error) {
+    const normalized =
+      error instanceof Error && /Receiving end does not exist/i.test(error.message)
+        ? new Error("Content script unavailable on this page (Receiving end does not exist)")
+        : error instanceof Error
+        ? error
+        : new Error(String(error))
+
+    throw normalized
   }
 }
