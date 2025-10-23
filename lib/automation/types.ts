@@ -38,6 +38,14 @@ export type StructuredPromptConfig = {
   variables?: Record<string, string>
   /** Desired output formatting hint. */
   outputFormat?: "text" | "markdown" | "json"
+  /** Optional structured response schema passed to the Prompt API. */
+  schema?: Record<string, unknown>
+  /** Whether to invoke the Chrome Prompt API. Defaults to true when schema is provided. */
+  usePromptApi?: boolean
+  /** Optional system-level instructions prepended before user input. */
+  systemPrompt?: string
+  /** Preferred language tag (BCP-47) for the model output. Defaults to English. */
+  outputLanguage?: string
 }
 
 export type ActionType = "read-page" | "summarize-text" | "structured-prompt"

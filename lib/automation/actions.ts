@@ -244,15 +244,39 @@ function summarizeTextAction({ input, step }: ActionExecutionArgs<"summarize-tex
   }
 }
 
-function structuredPromptAction({
+type PromptApiNamespace = {
+  availability?: (options?: Record<string, unknown>) => Promise<string>
+  create?: (options?: Record<string, unknown>) => Promise<PromptApiSession>
+  params?: () => Promise<Record<string, unknown>>
+}
+
+type PromptApiSession = {
+  prompt: (input: unknown, options?: Record<string, unknown>) => Promise<string>
+  promptStreaming?: (input: unknown, options?: Record<string, unknown>) => AsyncIterable<string>
+  destroy?: () => void
+}
+
+async function structuredPromptAction({
   input,
   step,
-  cache
-}: ActionExecutionArgs<"structured-prompt">): ActionExecutionResult<string> {
+  cache,
+  signal
+}: ActionExecutionArgs<"structured-prompt">): Promise<ActionExecutionResult<string>> {
   const config: StructuredPromptConfig = {
     template: step.config?.template ?? "{{input}}",
     variables: step.config?.variables,
-    outputFormat: step.config?.outputFormat ?? "text"
+    outputFormat: step.config?.outputFormat ?? "text",
+    schema: step.config?.schema,
+    usePromptApi: step.config?.usePromptApi,
+    systemPrompt: step.config?.systemPrompt,
+    outputLanguage: step.config?.outputLanguage
+  }
+
+  const debugTrace = createDebugTrace()
+  const debugLog = createScopedDebugger("automation/structured-prompt")
+  const logDebug = (stage: string, details: Record<string, unknown> = {}) => {
+    appendDebugTrace(debugTrace, stage, details)
+    debugLog(stage, details)
   }
 
   const replacements = {
@@ -260,8 +284,187 @@ function structuredPromptAction({
     ...(config.variables ?? {})
   }
 
-  const filled = config.template.replace(/{{\s*(\w+)\s*}}/g, (_, key) => {
-    if (replacements[key] !== undefined) {
+  const filled = renderPromptTemplate(config.template, replacements, cache)
+  const fallbackOutput = formatTemplateOutput(filled, config.outputFormat)
+  const shouldUsePromptApi = config.usePromptApi ?? Boolean(config.schema)
+
+  logDebug("start", {
+    hasSchema: Boolean(config.schema),
+    usePromptApi: shouldUsePromptApi,
+    templateLength: config.template.length,
+    replacementKeys: Object.keys(replacements)
+  })
+
+  if (!shouldUsePromptApi) {
+    logDebug("prompt-api-skip", { reason: "disabled" })
+    return {
+      success: true,
+      output: fallbackOutput,
+      meta: {
+        format: config.outputFormat,
+        usedPromptApi: false,
+        ...(debugTrace ? { debug: debugTrace } : {})
+      }
+    }
+  }
+
+  const languageModel = resolveLanguageModelNamespace()
+  if (!languageModel?.create) {
+    logDebug("prompt-api-missing", { reason: "namespace-missing" })
+    return {
+      success: false,
+      error: new Error("Chrome Prompt API is not available in this context"),
+      meta: {
+        usedPromptApi: false,
+        availability: "missing",
+        format: config.outputFormat,
+        ...(debugTrace ? { debug: debugTrace } : {})
+      }
+    }
+  }
+
+  const modelOptions: Record<string, unknown> = {
+    expectedInputs: [{ type: "text", languages: ["en"] }],
+    expectedOutputs: [{ type: "text", languages: [config.outputLanguage ?? "en"] }]
+  }
+
+  let availability: string | undefined
+  if (languageModel.availability) {
+    try {
+      availability = await languageModel.availability(modelOptions)
+      logDebug("availability", { state: availability })
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error(String(error))
+      logDebug("availability-error", { message: normalized.message })
+      return {
+        success: false,
+        error: normalized,
+        meta: {
+          usedPromptApi: true,
+          availability: "error",
+          format: config.outputFormat,
+          ...(debugTrace ? { debug: debugTrace } : {})
+        }
+      }
+    }
+  }
+
+  if (availability === "unavailable") {
+    return {
+      success: false,
+      error: new Error("Chrome Prompt API is unavailable on this device"),
+      meta: {
+        usedPromptApi: true,
+        availability,
+        format: config.outputFormat,
+        ...(debugTrace ? { debug: debugTrace } : {})
+      }
+    }
+  }
+
+  const requiresDownload = availability === "downloadable" || availability === "downloading"
+  const isActivated =
+    typeof navigator !== "undefined" && "userActivation" in navigator
+      ? (navigator as Navigator & { userActivation: { isActive: boolean } }).userActivation
+          .isActive
+      : true
+
+  if (requiresDownload && !isActivated) {
+    return {
+      success: false,
+      error: new Error("Prompt API session requires a user interaction before model download"),
+      meta: {
+        usedPromptApi: true,
+        availability,
+        format: config.outputFormat,
+        needsUserActivation: true,
+        ...(debugTrace ? { debug: debugTrace } : {})
+      }
+    }
+  }
+
+  let session: PromptApiSession
+  try {
+    session = await languageModel.create({
+      ...modelOptions,
+      signal
+    })
+  } catch (error) {
+    const normalized = error instanceof Error ? error : new Error(String(error))
+    logDebug("session-create-error", { message: normalized.message })
+    return {
+      success: false,
+      error: normalized,
+      meta: {
+        usedPromptApi: true,
+        availability,
+        format: config.outputFormat,
+        ...(debugTrace ? { debug: debugTrace } : {})
+      }
+    }
+  }
+
+  try {
+    const payload = buildPromptPayload(filled, config.systemPrompt)
+    const options: Record<string, unknown> = {}
+    if (config.schema) {
+      options.responseConstraint = config.schema
+    }
+    if (signal) {
+      options.signal = signal
+    }
+
+    logDebug("prompt-run", {
+      payloadType: Array.isArray(payload) ? "messages" : "string",
+      hasSchema: Boolean(config.schema)
+    })
+
+    const result = await session.prompt(payload, options)
+    const resultText = typeof result === "string" ? result : String(result)
+
+    return {
+      success: true,
+      output: resultText,
+      meta: {
+        usedPromptApi: true,
+        availability,
+        promptLength: filled.length,
+        resultLength: resultText.length,
+        schemaProvided: Boolean(config.schema),
+        format: config.outputFormat,
+        ...(debugTrace ? { debug: debugTrace } : {})
+      }
+    }
+  } catch (error) {
+    const normalized = error instanceof Error ? error : new Error(String(error))
+    logDebug("prompt-error", { message: normalized.message })
+    return {
+      success: false,
+      error: normalized,
+      meta: {
+        usedPromptApi: true,
+        availability,
+        format: config.outputFormat,
+        ...(debugTrace ? { debug: debugTrace } : {})
+      }
+    }
+  } finally {
+    try {
+      session.destroy?.()
+    } catch (destroyError) {
+      const normalized = destroyError instanceof Error ? destroyError : new Error(String(destroyError))
+      logDebug("session-destroy-error", { message: normalized.message })
+    }
+  }
+}
+
+function renderPromptTemplate(
+  template: string,
+  replacements: Record<string, unknown>,
+  cache: Map<string, unknown>
+) {
+  return template.replace(/{{\s*(\w+)\s*}}/g, (_, key: string) => {
+    if (Object.prototype.hasOwnProperty.call(replacements, key)) {
       return String(replacements[key])
     }
 
@@ -272,21 +475,49 @@ function structuredPromptAction({
 
     return `{{${key}}}`
   })
+}
 
-  const output =
-    config.outputFormat === "json"
-      ? JSON.stringify({ prompt: filled }, null, 2)
-      : config.outputFormat === "markdown"
-      ? `### Prompt\n\n${filled}`
-      : filled
-
-  return {
-    success: true,
-    output,
-    meta: {
-      format: config.outputFormat
-    }
+function formatTemplateOutput(
+  filled: string,
+  format: StructuredPromptConfig["outputFormat"] = "text"
+) {
+  if (format === "json") {
+    return JSON.stringify({ prompt: filled }, null, 2)
   }
+
+  if (format === "markdown") {
+    return `### Prompt\n\n${filled}`
+  }
+
+  return filled
+}
+
+function buildPromptPayload(filled: string, systemPrompt?: string) {
+  if (!systemPrompt) {
+    return filled
+  }
+
+  return [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: filled }
+  ]
+}
+
+function resolveLanguageModelNamespace(): PromptApiNamespace | undefined {
+  const globalAny = globalThis as unknown as Record<string, unknown>
+
+  const direct = globalAny.LanguageModel
+  if (direct && (typeof direct === "object" || typeof direct === "function")) {
+    return direct as PromptApiNamespace
+  }
+
+  const ai = (globalAny.ai ?? {}) as Record<string, unknown>
+  const fromAi = ai.languageModel
+  if (fromAi && (typeof fromAi === "object" || typeof fromAi === "function")) {
+    return fromAi as PromptApiNamespace
+  }
+
+  return undefined
 }
 
 async function readActiveTabContent(options: {

@@ -57,9 +57,56 @@ export const captureActivePage: TaskDefinition = {
   ]
 }
 
-export type PresetId = "daily-dev" | "page-capture"
+export const promptApiDemo: TaskDefinition = {
+  id: "prompt-api-demo",
+  name: "Prompt API demo",
+  description: "Call the Chrome Prompt API and return structured JSON output.",
+  steps: [
+    {
+      id: "promptResult",
+      type: "structured-prompt",
+      description: "Invoke Gemini Nano with a JSON schema constraint.",
+      config: {
+        template:
+          "You are helping a developer understand an imprecise ticket. Based on the ticket text below, produce structured guidance that fits the provided schema. Ticket:\n\n{{input}}",
+        systemPrompt:
+          "You are a senior engineer. Provide grounded, factual guidance without fabricating details that are not present in the ticket.",
+        schema: {
+          type: "object",
+          properties: {
+            summary: { type: "string" },
+            suggestedClarifications: {
+              type: "array",
+              items: { type: "string" },
+              minItems: 0,
+              maxItems: 4
+            },
+            riskLevel: {
+              type: "string",
+              enum: ["low", "medium", "high"]
+            },
+            testPlan: {
+              type: "array",
+              items: { type: "string" },
+              minItems: 1,
+              maxItems: 5
+            }
+          },
+          required: ["summary", "riskLevel", "testPlan"],
+          additionalProperties: false
+        },
+        outputFormat: "json",
+        outputLanguage: "en",
+        usePromptApi: true
+      }
+    }
+  ]
+}
+
+export type PresetId = "daily-dev" | "page-capture" | "prompt-api-demo"
 
 export const PRESET_REGISTRY: Record<PresetId, TaskDefinition> = {
   "daily-dev": dailyDeveloperRecap,
-  "page-capture": captureActivePage
+  "page-capture": captureActivePage,
+  "prompt-api-demo": promptApiDemo
 }

@@ -9,10 +9,11 @@ import {
   PRESET_REGISTRY,
   WorkflowManager,
   type PresetId,
-  type WorkflowRunRecord
+  type WorkflowRunRecord,
+  type TaskRunOptions
 } from "@/lib/automation"
 import { cn } from "@/lib/utils"
-import { ArrowRight, BookOpen, Bot, Cpu, PenTool, PlusCircle } from "lucide-react"
+import { ArrowRight, BookOpen, Bot, Cpu, PenTool, PlusCircle, Sparkles } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 type QuickAction = {
@@ -23,6 +24,7 @@ type QuickAction = {
   iconClassName?: string
   presetId?: PresetId
   sampleContent?: string
+  initialInput?: unknown
 }
 
 const QUICK_ACTIONS: QuickAction[] = [
@@ -58,6 +60,16 @@ const QUICK_ACTIONS: QuickAction[] = [
     className:
       "border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary/40 hover:text-primary",
     iconClassName: "text-muted-foreground"
+  },
+  {
+    label: "Prompt API demo",
+    description: "Call Gemini Nano via the Prompt API and inspect the JSON output.",
+    icon: Sparkles,
+    className: "hover:border-purple-300/70 hover:bg-purple-200/20",
+    iconClassName: "text-purple-500",
+    presetId: "prompt-api-demo",
+    initialInput: `Ticket: "Payment webhook retries"\nContext: Partial migration to v2 queue. QA noticed duplicate refund emails on retries. ACs mention graceful back-off and idempotent updates but do not call out legacy cron job that may still fire. Logs: shard-3 reports occasional 409 conflict when retry > 3 attempts.\nRequested by: Growth ops. Deadline: end of week.`,
+    sampleContent: `Ticket: "Payment webhook retries"\nContext: Partial migration to v2 queue. QA noticed duplicate refund emails on retries. ACs mention graceful back-off and idempotent updates but do not call out legacy cron job that may still fire. Logs: shard-3 reports occasional 409 conflict when retry > 3 attempts.\nRequested by: Growth ops. Deadline: end of week.`
   }
 ]
 
@@ -154,13 +166,17 @@ function IndexPopup() {
         ? { pageContent: action.sampleContent }
         : undefined
 
+      const runOptions: TaskRunOptions = {}
+      if (context) {
+        runOptions.context = context
+      }
+      if (action.initialInput !== undefined) {
+        runOptions.initialInput = action.initialInput
+      }
+
       manager.enqueue(
         preset,
-        context
-          ? {
-              context
-            }
-          : undefined
+        Object.keys(runOptions).length > 0 ? runOptions : undefined
       )
     },
     [manager, useSampleData]
