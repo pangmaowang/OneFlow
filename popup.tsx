@@ -12,8 +12,9 @@ import {
   type WorkflowRunRecord,
   type TaskRunOptions
 } from "@/lib/automation"
+import { openAutomationResultViewer } from "@/lib/viewer"
 import { cn } from "@/lib/utils"
-import { ArrowRight, BookOpen, Bot, Cpu, PenTool, PlusCircle, Sparkles } from "lucide-react"
+import { ArrowRight, BookOpen, Bot, Cpu, PlusCircle, Sparkles } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 type QuickAction = {
@@ -23,7 +24,6 @@ type QuickAction = {
   className?: string
   iconClassName?: string
   presetId?: PresetId
-  sampleContent?: string
   initialInput?: unknown
 }
 
@@ -42,20 +42,11 @@ const QUICK_ACTIONS: QuickAction[] = [
     icon: Cpu,
     className: "hover:border-primary/40 hover:bg-primary/10",
     iconClassName: "text-primary",
-    presetId: "daily-dev",
-    sampleContent:
-      "Wrapped the OAuth migration, merged the flaky test fixes, and drafted tomorrow's release checklist."
-  },
-  {
-    label: "Blog autopilot",
-    description: "Transform highlights into a publish-ready outline for your readers.",
-    icon: PenTool,
-    className: "hover:border-secondary/60 hover:bg-secondary/20",
-    iconClassName: "text-secondary-foreground"
+    presetId: "daily-dev"
   },
   {
     label: "Add custom flow",
-    description: "Stack prompts, tools, and approvals to craft your own automation.",
+    description: "Stack prompts, tools, and approvals to craft your own automation. Coming soon.",
     icon: PlusCircle,
     className:
       "border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary/40 hover:text-primary",
@@ -68,15 +59,13 @@ const QUICK_ACTIONS: QuickAction[] = [
     className: "hover:border-purple-300/70 hover:bg-purple-200/20",
     iconClassName: "text-purple-500",
     presetId: "prompt-api-demo",
-    initialInput: `Ticket: "Payment webhook retries"\nContext: Partial migration to v2 queue. QA noticed duplicate refund emails on retries. ACs mention graceful back-off and idempotent updates but do not call out legacy cron job that may still fire. Logs: shard-3 reports occasional 409 conflict when retry > 3 attempts.\nRequested by: Growth ops. Deadline: end of week.`,
-    sampleContent: `Ticket: "Payment webhook retries"\nContext: Partial migration to v2 queue. QA noticed duplicate refund emails on retries. ACs mention graceful back-off and idempotent updates but do not call out legacy cron job that may still fire. Logs: shard-3 reports occasional 409 conflict when retry > 3 attempts.\nRequested by: Growth ops. Deadline: end of week.`
+    initialInput: `Ticket: "Payment webhook retries"\nContext: Partial migration to v2 queue. QA noticed duplicate refund emails on retries. ACs mention graceful back-off and idempotent updates but do not call out legacy cron job that may still fire. Logs: shard-3 reports occasional 409 conflict when retry > 3 attempts.\nRequested by: Growth ops. Deadline: end of week.`
   }
 ]
 
 function IndexPopup() {
   const manager = useMemo(() => new WorkflowManager(), [])
   const [runs, setRuns] = useState<WorkflowRunRecord[]>([])
-  const [useSampleData, setUseSampleData] = useState(false)
 
   useEffect(() => manager.subscribe(setRuns), [manager])
 
@@ -162,14 +151,7 @@ function IndexPopup() {
         return
       }
 
-      const context = useSampleData && action.sampleContent
-        ? { pageContent: action.sampleContent }
-        : undefined
-
       const runOptions: TaskRunOptions = {}
-      if (context) {
-        runOptions.context = context
-      }
       if (action.initialInput !== undefined) {
         runOptions.initialInput = action.initialInput
       }
@@ -179,7 +161,7 @@ function IndexPopup() {
         Object.keys(runOptions).length > 0 ? runOptions : undefined
       )
     },
-    [manager, useSampleData]
+    [manager]
   )
 
   return (
@@ -208,22 +190,6 @@ function IndexPopup() {
           <p className="text-xs text-muted-foreground">
             Launch a ready-made routine or sketch the automation you have in mind.
           </p>
-        </div>
-
-        <div className="flex items-center justify-between rounded-lg border border-dashed border-muted/40 bg-muted/10 px-3 py-2 text-[11px] text-muted-foreground">
-          <span>Use sample content (dev helper)</span>
-          <Button
-            type="button"
-            variant={useSampleData ? "default" : "ghost"}
-            size="sm"
-            className={cn(
-              "h-6 px-2 text-[11px]",
-              useSampleData ? "bg-primary text-primary-foreground" : "text-muted-foreground"
-            )}
-            onClick={() => setUseSampleData((prev) => !prev)}
-          >
-            {useSampleData ? "On" : "Off"}
-          </Button>
         </div>
 
         <div className="space-y-2">

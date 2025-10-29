@@ -23,6 +23,7 @@ import {
   createDebugTrace,
   createScopedDebugger
 } from "../debug"
+import { openStashedAutomationResult, stashAutomationResult } from "../viewer"
 
 const registry = new Map<ActionType, RegisteredAction<ActionType>>()
 
@@ -421,6 +422,27 @@ async function structuredPromptAction({
 
     const result = await session.prompt(payload, options)
     const resultText = typeof result === "string" ? result : String(result)
+
+    let viewerKey: string | undefined
+    try {
+      viewerKey = await stashAutomationResult(resultText, {
+        taskId: step.id,
+        taskName: step.description ?? step.type,
+        stepId: step.id
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      logDebug("viewer-stash-error", { message })
+    }
+
+    if (viewerKey) {
+      try {
+        openStashedAutomationResult(viewerKey)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        logDebug("viewer-open-error", { message })
+      }
+    }
 
     return {
       success: true,
