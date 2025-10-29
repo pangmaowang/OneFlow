@@ -1,5 +1,5 @@
-import { createScopedDebugger } from "@/lib/debug"
-import { storageSet } from "@/lib/chrome-storage"
+import { createScopedDebugger } from "./debug"
+import { storageSet } from "./chrome-storage"
 
 const debug = createScopedDebugger("automation/viewer")
 

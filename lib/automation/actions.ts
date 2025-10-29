@@ -24,8 +24,14 @@ import {
   createScopedDebugger
 } from "../debug"
 import { openStashedAutomationResult, stashAutomationResult } from "../viewer"
+import {
+  saveArtifact,
+  type StoredArtifactPayload,
+  type StoredArtifactRecord
+} from "../storage"
 
 const registry = new Map<ActionType, RegisteredAction<ActionType>>()
+const storeArtifactDebug = createScopedDebugger("automation/store-artifact")
 
 export function registerAction<TType extends ActionType>(
   type: TType,
@@ -71,6 +77,12 @@ registerAction("structured-prompt", {
   name: "Prompt template",
   description: "Render a prompt template with contextual values",
   run: structuredPromptAction
+})
+
+registerAction("store-artifact", {
+  name: "Store artifact",
+  description: "Persist automation output for future recall",
+  run: storeArtifactAction
 })
 
 // --- Action implementations ----------------------------------------------
@@ -242,6 +254,109 @@ function summarizeTextAction({ input, step }: ActionExecutionArgs<"summarize-tex
       originalSentenceCount: sentences.length,
       returnedSentenceCount: Math.min(sentences.length, maxSentences)
     }
+  }
+}
+
+async function storeArtifactAction({
+  input,
+  step
+}: ActionExecutionArgs<"store-artifact">): Promise<ActionExecutionResult<StoredArtifactRecord | undefined>> {
+  const config = step.config ?? {}
+
+  const isEmptyInput =
+    input === undefined ||
+    input === null ||
+    (typeof input === "string" && input.trim().length === 0)
+
+  if (config.skipWhenEmpty && isEmptyInput) {
+    storeArtifactDebug("skip", { reason: "empty-input", stepId: step.id })
+    return {
+      success: true,
+      meta: {
+        skipped: true,
+        reason: "empty-input"
+      }
+    }
+  }
+
+  if (isEmptyInput) {
+    const error = new Error("store-artifact requires a non-empty input payload")
+    storeArtifactDebug("input-missing", { stepId: step.id })
+    return {
+      success: false,
+      error
+    }
+  }
+
+  const payload = buildStoredPayload(input, config.parseJson ?? true)
+  const metadata: Record<string, unknown> = {}
+
+  if (step.id) {
+    metadata.stepId = step.id
+  }
+  if (step.description) {
+    metadata.stepDescription = step.description
+  }
+
+  if (config.metadata) {
+    Object.assign(metadata, config.metadata)
+  }
+
+  const artifactType = config.artifactType ?? "development-task"
+
+  try {
+    const record = await saveArtifact({
+      type: artifactType,
+      payload,
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+      tags: config.tags
+    })
+
+    storeArtifactDebug("saved", { artifactId: record.id, type: artifactType, hasParsed: Boolean(payload.parsed) })
+
+    return {
+      success: true,
+      output: record,
+      meta: {
+        artifactId: record.id,
+        artifactType: record.type
+      }
+    }
+  } catch (error) {
+    const normalized = error instanceof Error ? error : new Error(String(error))
+    storeArtifactDebug("save-error", { message: normalized.message })
+    return {
+      success: false,
+      error: normalized
+    }
+  }
+}
+
+function buildStoredPayload(rawInput: unknown, shouldParse: boolean): StoredArtifactPayload {
+  if (typeof rawInput === "string") {
+    const trimmed = rawInput.trim()
+    return {
+      raw: rawInput,
+      parsed: shouldParse ? tryParseJson(trimmed) : undefined
+    }
+  }
+
+  return {
+    raw: JSON.stringify(rawInput, null, 2),
+    parsed: rawInput
+  }
+}
+
+function tryParseJson(value: string) {
+  if (!value) {
+    return undefined
+  }
+
+  try {
+    return JSON.parse(value)
+  } catch (error) {
+    storeArtifactDebug("json-parse-failed", { message: error instanceof Error ? error.message : String(error) })
+    return undefined
   }
 }
 

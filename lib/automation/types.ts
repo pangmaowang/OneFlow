@@ -48,12 +48,26 @@ export type StructuredPromptConfig = {
   outputLanguage?: string
 }
 
-export type ActionType = "read-page" | "summarize-text" | "structured-prompt"
+export type StoreArtifactConfig = {
+  /** Logical grouping for the stored artifact. */
+  artifactType?: string
+  /** Optional metadata persisted alongside the artifact. */
+  metadata?: Record<string, unknown>
+  /** Optional tags for future filtering. */
+  tags?: string[]
+  /** Whether to attempt JSON parsing when the input is a string. Defaults to true. */
+  parseJson?: boolean
+  /** When true, skips persistence if the input is empty or undefined. Defaults to false. */
+  skipWhenEmpty?: boolean
+}
+
+export type ActionType = "read-page" | "summarize-text" | "structured-prompt" | "store-artifact"
 
 export interface ActionTypeConfigMap {
   "read-page": ReadPageConfig
   "summarize-text": SummarizeConfig
   "structured-prompt": StructuredPromptConfig
+  "store-artifact": StoreArtifactConfig
 }
 
 type ActionStepBase<TType extends ActionType> = {

@@ -5,6 +5,7 @@ import { runTask } from "../runner"
 import { WorkflowManager } from "../workflow-manager"
 import { dailyDeveloperRecap } from "../presets"
 import type { RegisteredAction, TaskDefinition } from "../types"
+import { clearArtifacts, listArtifacts } from "../../storage"
 
 async function waitFor(condition: () => boolean, timeout = 500, interval = 10) {
   const start = Date.now()
@@ -18,6 +19,10 @@ async function waitFor(condition: () => boolean, timeout = 500, interval = 10) {
 }
 
 describe("automation pipeline", () => {
+  afterEach(async () => {
+    await clearArtifacts()
+  })
+
   it("runs the daily recap task end-to-end", async () => {
     const result = await runTask(dailyDeveloperRecap, {
       context: {
@@ -91,6 +96,68 @@ describe("automation pipeline", () => {
     expect(result.output).toContain("Breaking News")
     expect(result.output).toContain("The build is green and shipping today.")
     expect(result.output).not.toContain("evil")
+  })
+})
+
+describe("store-artifact action", () => {
+  afterEach(async () => {
+    await clearArtifacts()
+  })
+
+  it("persists structured payloads with metadata", async () => {
+    const action = requireAction("store-artifact")
+
+    const payload = JSON.stringify({ summary: "Completed auth migration" })
+    const result = await action.run({
+      step: {
+        id: "persist",
+        type: "store-artifact",
+        config: {
+          artifactType: "prompt-result",
+          metadata: {
+            label: "weekly-recap"
+          },
+          tags: ["weekly", "prompt"],
+          parseJson: true
+        }
+      },
+      input: payload,
+      context: {},
+      cache: new Map()
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.meta?.artifactId).toBeTruthy()
+
+    const [stored] = await listArtifacts()
+    expect(stored).toBeDefined()
+    expect(stored.type).toBe("prompt-result")
+    expect(stored.metadata?.label).toBe("weekly-recap")
+    expect(stored.tags).toEqual(["weekly", "prompt"])
+    expect(stored.payload.raw).toBe(payload)
+    expect(stored.payload.parsed).toMatchObject({ summary: "Completed auth migration" })
+  })
+
+  it("skips persistence when configured and input is empty", async () => {
+    const action = requireAction("store-artifact")
+
+    const result = await action.run({
+      step: {
+        type: "store-artifact",
+        config: {
+          skipWhenEmpty: true
+        }
+      },
+      input: "   ",
+      context: {},
+      cache: new Map()
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.meta?.skipped).toBe(true)
+
+    const stored = await listArtifacts()
+    expect(stored.length).toBe(0)
   })
 })
 

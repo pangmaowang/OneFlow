@@ -99,6 +99,19 @@ export const promptApiDemo: TaskDefinition = {
         outputLanguage: "en",
         usePromptApi: true
       }
+    },
+    {
+      id: "persistPromptResult",
+      type: "store-artifact",
+      description: "Persist the structured prompt output for historical reporting.",
+      config: {
+        artifactType: "prompt-result",
+        metadata: {
+          sourceTask: "prompt-api-demo"
+        },
+        tags: ["prompt-api", "automation"],
+        skipWhenEmpty: true
+      }
     }
   ]
 }

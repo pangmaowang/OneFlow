@@ -1,4 +1,4 @@
-import { createScopedDebugger } from "@/lib/debug"
+import { createScopedDebugger } from "./debug"
 
 const debug = createScopedDebugger("chrome/storage")
 
