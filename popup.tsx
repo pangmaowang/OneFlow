@@ -20,6 +20,7 @@ import {
   ArrowRight,
   BookOpen,
   Bot,
+  CalendarRange,
   CheckCircle2,
   Clock3,
   Cpu,
@@ -251,6 +252,14 @@ const QUICK_ACTIONS: QuickAction[] = [
     className: "hover:border-primary/40 hover:bg-primary/10",
     iconClassName: "text-primary",
     presetId: "daily-dev"
+  },
+  {
+    label: "Generate weekly report",
+    description: "Roll up stored daily recaps into an executive-friendly update.",
+    icon: CalendarRange,
+    className: "border-amber-300/60 bg-amber-200/15 text-amber-700 hover:bg-amber-200/25",
+    iconClassName: "text-amber-500",
+    presetId: "weekly-summary"
   },
   {
     label: "Add custom flow",

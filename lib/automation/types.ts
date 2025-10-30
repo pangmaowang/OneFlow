@@ -31,6 +31,15 @@ export type SummarizeConfig = {
   format?: "paragraph" | "bullets"
 }
 
+export type CollectWeeklySummaryConfig = {
+  /** Number of days to look back when collecting daily recaps. Defaults to 7. */
+  days?: number
+  /** Artifact type that stores the daily recap payloads. */
+  artifactType?: string
+  /** Maximum number of entries to fetch before filtering by date. */
+  maxEntries?: number
+}
+
 export type StructuredPromptConfig = {
   /** Prompt template that supports {{placeholders}}. */
   template: string
@@ -67,13 +76,19 @@ export type StoreArtifactConfig = {
   skipWhenEmpty?: boolean
 }
 
-export type ActionType = "read-page" | "summarize-text" | "structured-prompt" | "store-artifact"
+export type ActionType =
+  | "read-page"
+  | "summarize-text"
+  | "structured-prompt"
+  | "store-artifact"
+  | "collect-weekly-summary"
 
 export interface ActionTypeConfigMap {
   "read-page": ReadPageConfig
   "summarize-text": SummarizeConfig
   "structured-prompt": StructuredPromptConfig
   "store-artifact": StoreArtifactConfig
+  "collect-weekly-summary": CollectWeeklySummaryConfig
 }
 
 type ActionStepBase<TType extends ActionType> = {

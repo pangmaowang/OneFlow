@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import {
   AlertTriangle,
@@ -7,6 +7,7 @@ import {
   ClipboardCheck,
   Copy,
   FileText,
+  FileDown,
   ListChecks,
   Shield,
   Sparkles,
@@ -496,12 +497,251 @@ function RiskBadge({ value }: { value?: string }) {
   return <Badge variant={variant}>Risk: {value}</Badge>
 }
 
+function buildExportFileName(taskName: string | undefined, extension: string, createdAt?: number) {
+  const base = sanitizeFileSegment(taskName ?? "automation-result")
+  const timestamp = buildExportTimestamp(createdAt)
+  return `${base}-${timestamp}.${extension}`
+}
+
+function sanitizeFileSegment(value: string) {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+  return normalized || "automation-result"
+}
+
+function buildExportTimestamp(createdAt?: number) {
+  const source = createdAt ? new Date(createdAt) : new Date()
+  return source.toISOString().replace(/[:.]/g, "-")
+}
+
+function buildMarkdownExport(structured: unknown, payload: ViewerPayload | null): string {
+  const title = payload?.meta?.taskName ?? "Automation result"
+  const generatedAt = payload?.createdAt
+    ? new Date(payload.createdAt).toLocaleString()
+    : null
+  const rawOutput = payload?.raw ?? ""
+  const lines: string[] = [`# ${title}`, ""]
+
+  const addDivider = () => {
+    if (lines.length === 0) {
+      return
+    }
+    if (lines[lines.length - 1] !== "") {
+      lines.push("")
+    }
+    lines.push("---")
+    lines.push("")
+  }
+
+  if (generatedAt) {
+    lines.push(`> **Generated:** ${generatedAt}`, "")
+    addDivider()
+  }
+
+  if (structured === undefined || structured === null) {
+    if (rawOutput) {
+      lines.push("```text", rawOutput, "```")
+    } else {
+      lines.push("_No structured output available._")
+    }
+    return lines.join("\n")
+  }
+
+  if (typeof structured === "string") {
+    lines.push(structured)
+    if (rawOutput) {
+      lines.push("", "## Raw Output", "", "```text", rawOutput, "```")
+    }
+    return lines.join("\n")
+  }
+
+  if (Array.isArray(structured)) {
+    if (structured.every(isPrimitive)) {
+      structured.forEach((item) => {
+        lines.push(`- ${String(item)}`)
+      })
+    } else {
+      lines.push("```json", JSON.stringify(structured, null, 2), "```")
+    }
+
+    if (rawOutput) {
+      lines.push("", "## Raw Output", "", "```text", rawOutput, "```")
+    }
+
+    return lines.join("\n")
+  }
+
+  if (!isPlainRecord(structured)) {
+    lines.push("```text", String(structured), "```")
+    if (rawOutput) {
+      lines.push("", "## Raw Output", "", "```text", rawOutput, "```")
+    }
+    return lines.join("\n")
+  }
+
+  const record = structured as Record<string, unknown>
+  const handled = new Set<string>()
+
+  const summary = typeof record.summary === "string" ? record.summary.trim() : ""
+  if (summary) {
+    lines.push("## Summary", "")
+    lines.push(`> ${summary}`)
+    lines.push("")
+    addDivider()
+    handled.add("summary")
+  }
+
+  const listSections: Array<{ key: string; title: string }> = [
+    { key: "highlights", title: "Highlights" },
+    { key: "blockers", title: "Blockers" },
+    { key: "nextFocus", title: "Next focus" },
+    { key: "actionItems", title: "Action items" },
+    { key: "suggestedClarifications", title: "Suggested clarifications" },
+    { key: "testPlan", title: "Test plan" }
+  ]
+
+  listSections.forEach(({ key, title }) => {
+    const entries = normalizeStringList(record[key])
+    if (entries.length === 0) {
+      return
+    }
+    lines.push(`## ${title}`, "")
+    lines.push("_Key points:_", "")
+    entries.forEach((entry) => {
+      lines.push(`- ${entry}`)
+    })
+    lines.push("")
+    addDivider()
+    handled.add(key)
+  })
+
+  const breakdownRaw = Array.isArray(record.dailyBreakdown) ? record.dailyBreakdown : []
+  const breakdown = breakdownRaw.filter((entry): entry is Record<string, unknown> =>
+    isPlainRecord(entry)
+  )
+
+  if (breakdown.length > 0) {
+    lines.push("## Daily Breakdown", "")
+    breakdown.forEach((entry, index) => {
+      const label =
+        typeof entry.date === "string" && entry.date.trim()
+          ? entry.date.trim()
+          : `Day ${index + 1}`
+      lines.push(`### ${label}`, "")
+      const daySummary = typeof entry.summary === "string" ? entry.summary.trim() : ""
+      if (daySummary) {
+        lines.push(`> ${daySummary}`, "")
+      }
+
+      const daySections: Array<{ key: string; title: string }> = [
+        { key: "highlights", title: "Highlights" },
+        { key: "blockers", title: "Blockers" },
+        { key: "nextFocus", title: "Next focus" },
+        { key: "actionItems", title: "Action items" }
+      ]
+
+      daySections.forEach(({ key, title }) => {
+        const items = normalizeStringList(entry[key])
+        if (items.length === 0) {
+          return
+        }
+        lines.push(`- **${title}:**`)
+        items.forEach((item) => {
+          lines.push(`  - ${item}`)
+        })
+      })
+
+      if (lines[lines.length - 1] !== "") {
+        lines.push("")
+      }
+    })
+
+    addDivider()
+    handled.add("dailyBreakdown")
+  }
+
+  Object.entries(record).forEach(([key, value]) => {
+    if (handled.has(key)) {
+      return
+    }
+    if (value === undefined || value === null) {
+      return
+    }
+
+    lines.push(`## ${formatKeyLabel(key)}`, "")
+
+    if (typeof value === "string") {
+      const trimmed = value.trim()
+      if (trimmed) {
+        lines.push(trimmed, "")
+      }
+      addDivider()
+      return
+    }
+
+    if (Array.isArray(value) && value.every(isPrimitive)) {
+      value.forEach((item) => {
+        lines.push(`- ${String(item)}`)
+      })
+      lines.push("")
+      addDivider()
+      return
+    }
+
+    lines.push("```json", JSON.stringify(value, null, 2), "```", "")
+    addDivider()
+  })
+
+  if (rawOutput) {
+    lines.push("## Raw Output", "", "```text", rawOutput, "```")
+  }
+
+  while (lines.length > 0 && lines[lines.length - 1] === "") {
+    lines.pop()
+  }
+
+  if (lines.length > 0 && lines[lines.length - 1] === "---") {
+    lines.pop()
+  }
+
+  return lines.join("\n")
+}
+
+function triggerDownload(filename: string, content: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = filename
+  link.style.display = "none"
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
 export default function PromptViewer() {
   const { state, payload, errorMessage } = useViewerData()
   const { copyState, copy } = useCopy()
 
   const structuredPayload = useMemo(() => resolveStructuredPayload(payload), [payload])
   const sections = useMemo(() => buildSections(structuredPayload), [structuredPayload])
+  const handleExportMarkdown = useCallback(() => {
+    if (!payload) {
+      return
+    }
+
+    try {
+      const content = buildMarkdownExport(structuredPayload, payload)
+      const filename = buildExportFileName(payload.meta?.taskName, "md", payload.createdAt)
+      triggerDownload(filename, content, "text/markdown;charset=utf-8")
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      debug("export-markdown-error", { message })
+    }
+  }, [payload, structuredPayload])
 
   if (state === "loading") {
     return (
@@ -544,6 +784,20 @@ export default function PromptViewer() {
                 {payload?.meta?.taskName ?? "Automation output"}
                 {payload?.createdAt ? ` · ${formatDate(payload.createdAt)}` : null}
               </p>
+              {payload ? (
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={handleExportMarkdown}
+                  >
+                    <FileDown className="h-4 w-4" aria-hidden="true" />
+                    <span className="text-xs font-semibold uppercase tracking-wide">Download Markdown</span>
+                  </Button>
+                </div>
+              ) : null}
             </div>
           </CardHeader>
         </Card>

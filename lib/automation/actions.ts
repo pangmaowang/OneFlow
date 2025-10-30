@@ -25,6 +25,7 @@ import {
 } from "../debug"
 import { openStashedAutomationResult, stashAutomationResult } from "../viewer"
 import {
+  listArtifacts,
   saveArtifact,
   type StoredArtifactPayload,
   type StoredArtifactRecord
@@ -71,6 +72,12 @@ registerAction("summarize-text", {
   name: "Summarize text",
   description: "Condense textual input into key bullet points",
   run: summarizeTextAction
+})
+
+registerAction("collect-weekly-summary", {
+  name: "Collect weekly recaps",
+  description: "Gather stored daily recaps for weekly reporting",
+  run: collectWeeklySummaryAction
 })
 
 registerAction("structured-prompt", {
@@ -253,6 +260,89 @@ function summarizeTextAction({ input, step }: ActionExecutionArgs<"summarize-tex
     meta: {
       originalSentenceCount: sentences.length,
       returnedSentenceCount: Math.min(sentences.length, maxSentences)
+    }
+  }
+}
+
+const DAY_IN_MS = 86_400_000
+
+type WeeklyRecapEntry = {
+  id: string
+  createdAt: number
+  dateISO: string
+  dateLabel: string
+  summary: string
+  highlights: string[]
+  blockers: string[]
+  nextFocus: string[]
+  actionItems: string[]
+}
+
+async function collectWeeklySummaryAction({ step }: ActionExecutionArgs<"collect-weekly-summary">) {
+  const config = step.config ?? {}
+  const days = config.days && config.days > 0 ? config.days : 7
+  const artifactType = config.artifactType ?? "daily-dev-recap"
+  const maxEntries = Math.max(config.maxEntries ?? days * 3, days)
+  const cutoff = Date.now() - days * DAY_IN_MS
+
+  const artifacts = await listArtifacts({
+    type: artifactType,
+    order: "desc",
+    limit: maxEntries
+  })
+
+  const withinWindow: WeeklyRecapEntry[] = []
+  let staleCount = 0
+
+  for (const record of artifacts) {
+    if (record.createdAt >= cutoff) {
+      const normalized = normalizeWeeklyRecap(record)
+      if (normalized) {
+        withinWindow.push(normalized)
+      }
+    } else {
+      staleCount += 1
+    }
+  }
+
+  if (withinWindow.length === 0) {
+    return {
+      success: false as const,
+      error: new Error("No daily recaps found for the selected window"),
+      meta: {
+        artifactType,
+        days,
+        staleCount,
+        entryCount: 0
+      }
+    }
+  }
+
+  const sorted = withinWindow.sort((a, b) => a.createdAt - b.createdAt)
+  const promptSections = sorted.map((entry, index) => buildWeeklyPromptSection(entry, index + 1))
+  const rangeLabel = formatDateRange(sorted[0].createdAt, sorted[sorted.length - 1].createdAt)
+  const promptHeader = [`Weekly recap window: ${rangeLabel}`, `Entries included: ${sorted.length}`]
+  const promptInput = `${promptHeader.join("\n")}\n\n${promptSections.join("\n\n")}`
+
+  return {
+    success: true as const,
+    output: promptInput,
+    meta: {
+      artifactType,
+      days,
+      staleCount,
+      entryCount: sorted.length,
+      rangeStart: sorted[0].dateISO,
+      rangeEnd: sorted[sorted.length - 1].dateISO,
+      entries: sorted.map((entry) => ({
+        id: entry.id,
+        date: entry.dateISO,
+        summary: entry.summary,
+        highlights: entry.highlights.length,
+        blockers: entry.blockers.length,
+        nextFocus: entry.nextFocus.length,
+        actionItems: entry.actionItems.length
+      }))
     }
   }
 }
@@ -1032,6 +1122,112 @@ function buildPreview(value: string, limit = 360) {
     return trimmed
   }
   return `${trimmed.slice(0, limit)}…`
+}
+
+function normalizeWeeklyRecap(record: StoredArtifactRecord): WeeklyRecapEntry | null {
+  const parsed = resolveRecapPayload(record.payload)
+
+  const summary = typeof parsed?.summary === "string" ? parsed.summary.trim() : ""
+  const highlights = ensureStringList(parsed?.highlights)
+  const blockers = ensureStringList(parsed?.blockers)
+  const nextFocus = ensureStringList(parsed?.nextFocus)
+  const actionItems = ensureStringList(parsed?.actionItems)
+
+  const fallbackSummary = summary || highlights[0] || nextFocus[0] || blockers[0] || actionItems[0] || ""
+  const date = new Date(record.createdAt)
+
+  return {
+    id: record.id,
+    createdAt: record.createdAt,
+    dateISO: date.toISOString(),
+    dateLabel: formatDateLabel(date),
+    summary: fallbackSummary,
+    highlights,
+    blockers,
+    nextFocus,
+    actionItems
+  }
+}
+
+function resolveRecapPayload(payload: StoredArtifactPayload) {
+  if (payload.parsed && typeof payload.parsed === "object") {
+    return payload.parsed as Record<string, unknown>
+  }
+
+  try {
+    return JSON.parse(payload.raw) as Record<string, unknown>
+  } catch (_error) {
+    return null
+  }
+}
+
+function ensureStringList(value: unknown) {
+  if (!value) {
+    return [] as string[]
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === "string" || typeof item === "number" || typeof item === "boolean" ? String(item).trim() : null))
+      .filter((item): item is string => Boolean(item))
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(/\r?\n+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+
+  if (typeof value === "object") {
+    return Object.values(value as Record<string, unknown>)
+      .map((item) => (typeof item === "string" ? item.trim() : null))
+      .filter((item): item is string => Boolean(item))
+  }
+
+  return [] as string[]
+}
+
+function formatDateLabel(date: Date) {
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric"
+  }).format(date)
+}
+
+function formatDateRange(start: number, end: number) {
+  const formatter = new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric"
+  })
+  const startText = formatter.format(new Date(start))
+  const endText = formatter.format(new Date(end))
+  return startText === endText ? startText : `${startText} – ${endText}`
+}
+
+function buildWeeklyPromptSection(entry: WeeklyRecapEntry, index: number) {
+  const highlights = entry.highlights.length
+    ? entry.highlights.map((item) => `- ${item}`).join("\n")
+    : "- None"
+  const blockers = entry.blockers.length
+    ? entry.blockers.map((item) => `- ${item}`).join("\n")
+    : "- None"
+  const nextFocus = entry.nextFocus.length
+    ? entry.nextFocus.map((item) => `- ${item}`).join("\n")
+    : "- None"
+  const actionItems = entry.actionItems.length
+    ? entry.actionItems.map((item) => `- ${item}`).join("\n")
+    : "- None"
+
+  return [
+    `Entry ${index}: ${entry.dateLabel}`,
+    `Summary: ${entry.summary || "None"}`,
+    `Highlights:\n${highlights}`,
+    `Blockers:\n${blockers}`,
+    `Next focus:\n${nextFocus}`,
+    `Action items:\n${actionItems}`
+  ].join("\n")
 }
 
 function formatTemplateOutput(
