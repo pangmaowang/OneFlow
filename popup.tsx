@@ -235,16 +235,16 @@ function summarizeStepMeta(meta: unknown, debugMode: boolean): Record<string, un
 
 const QUICK_ACTIONS: QuickAction[] = [
   {
-    label: "Daily dev recap",
-    description: "Summarize commits, blockers, and upcoming priorities in seconds.",
+    label: "Daily dev debrief",
+    description: "Digest the ticket, capture what matters, and spin it into a shine-worthy update.",
     icon: Sparkles,
     className: "hover:border-purple-300/70 hover:bg-purple-200/20",
     iconClassName: "text-purple-500",
     presetId: "daily-dev"
   },
   {
-    label: "Generate weekly report",
-    description: "Roll up stored daily recaps into an executive-friendly update.",
+    label: "Weekly highlight reel",
+    description: "Roll up the week’s recaps into a brag-worthy briefing in one click.",
     icon: CalendarRange,
     className: "border-amber-300/60 bg-amber-200/15 text-amber-700 hover:bg-amber-200/25",
     iconClassName: "text-amber-500",
@@ -252,7 +252,7 @@ const QUICK_ACTIONS: QuickAction[] = [
   },
   {
     label: "Add custom flow",
-    description: "Stack prompts, tools, and approvals to craft your own automation. Coming soon.",
+    description: "Design your dream workflow with prompts, tools, and approvals—coming soon.",
     icon: PlusCircle,
     className:
       "border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary/40 hover:text-primary",
@@ -583,14 +583,14 @@ function IndexPopup() {
 
   return (
     <div className="w-[380px] max-w-full space-y-4 p-4">
-      <header className="flex items-center justify-between rounded-2xl border bg-card px-4 py-3 shadow-sm">
+  <header className="flex items-center justify-between rounded-2xl border bg-card px-4 py-3 shadow-sm">
         <div className="flex items-center gap-3">
           <span className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/80 shadow">
             <Bot className="h-5 w-5 text-primary-foreground" />
           </span>
           <div className="space-y-0.5">
             <p className="text-sm font-semibold">Auto Boring</p>
-            <p className="text-xs text-muted-foreground">Automate the work you&apos;d rather skip.</p>
+            <p className="text-xs text-muted-foreground">Automating the chores your boss loves and you don&apos;t.</p>
           </div>
         </div>
         <TaskIndicator
@@ -605,7 +605,7 @@ function IndexPopup() {
         <div className="space-y-1">
           <h2 className="text-sm font-semibold text-foreground">Quick automations</h2>
           <p className="text-xs text-muted-foreground">
-            Launch a ready-made routine or sketch the automation you have in mind.
+            Fire off a polished update while the coffee is still hot.
           </p>
         </div>
 
@@ -665,8 +665,8 @@ function IndexPopup() {
           <h2 className="text-sm font-semibold text-foreground">Workflow timeline</h2>
           <p className="text-xs text-muted-foreground">
             {debugMode
-              ? "Inspect each step's status, output, and metadata while debugging an automation run."
-              : "Track the status of each step as your automation runs."}
+              ? "Peek at every stage, payload, and metadata crumb while you debug."
+              : "See each step check in as your automation does the busywork."}
           </p>
         </div>
 
@@ -698,7 +698,7 @@ function IndexPopup() {
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">
-            Kick off an automation to populate the timeline.
+            Launch a run to watch the automation play-by-play fill in here.
           </p>
         )}
 
@@ -796,7 +796,9 @@ function IndexPopup() {
                   )
                 })
               ) : (
-                <p className="text-xs text-muted-foreground">Step progress will appear here once the run starts.</p>
+                <p className="text-xs text-muted-foreground">
+                  Step updates will roll in as soon as the workflow is underway.
+                </p>
               )}
             </div>
           </div>

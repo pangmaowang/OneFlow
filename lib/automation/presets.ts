@@ -2,8 +2,8 @@ import type { TaskDefinition } from "./types"
 
 export const dailyDeveloperRecap: TaskDefinition = {
   id: "daily-dev",
-  name: "Daily developer recap",
-  description: "Extract work notes, transform them with the Prompt API, and persist the recap.",
+  name: "Daily victory lap",
+  description: "Capture today’s highlights, worries, and next moves without drafting another status note.",
   steps: [
     {
       id: "pageContent",
@@ -83,8 +83,8 @@ export const dailyDeveloperRecap: TaskDefinition = {
 
 export const weeklySummaryReport: TaskDefinition = {
   id: "weekly-summary",
-  name: "Weekly summary report",
-  description: "Combine stored daily recaps into a shareable weekly update.",
+  name: "Weekly highlight reel",
+  description: "Bundle daily recaps into a leadership-ready briefing that spotlights impact and risks.",
   steps: [
     {
       id: "weeklySource",
