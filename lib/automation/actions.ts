@@ -377,7 +377,7 @@ async function structuredPromptAction({
   step,
   cache,
   signal
-}: ActionExecutionArgs<"structured-prompt">): Promise<ActionExecutionResult<string>> {
+}: ActionExecutionArgs<"structured-prompt">): Promise<ActionExecutionResult<unknown>> {
   const config: StructuredPromptConfig = {
     template: step.config?.template ?? "{{input}}",
     variables: step.config?.variables,
@@ -385,7 +385,10 @@ async function structuredPromptAction({
     schema: step.config?.schema,
     usePromptApi: step.config?.usePromptApi,
     systemPrompt: step.config?.systemPrompt,
-    outputLanguage: step.config?.outputLanguage
+    outputLanguage: step.config?.outputLanguage,
+    fallbackToTemplate: step.config?.fallbackToTemplate,
+    coerceJsonOutput: step.config?.coerceJsonOutput,
+    autoOpenViewer: step.config?.autoOpenViewer
   }
 
   const debugTrace = createDebugTrace()
@@ -403,6 +406,122 @@ async function structuredPromptAction({
   const filled = renderPromptTemplate(config.template, replacements, cache)
   const fallbackOutput = formatTemplateOutput(filled, config.outputFormat)
   const shouldUsePromptApi = config.usePromptApi ?? Boolean(config.schema)
+  const allowFallback = config.fallbackToTemplate ?? false
+  const expectsJson = config.coerceJsonOutput ?? Boolean(config.schema || config.outputFormat === "json")
+  const autoOpenViewer = config.autoOpenViewer ?? false
+
+  const mergeMeta = (meta: Record<string, unknown>) => ({
+    format: config.outputFormat,
+    ...meta,
+    ...(debugTrace ? { debug: debugTrace } : {})
+  })
+
+  const canUseViewer =
+    typeof chrome !== "undefined" &&
+    Boolean(chrome.runtime?.getURL) &&
+    Boolean(chrome.tabs?.create)
+
+  const deliverResult = async (
+    rawText: string,
+    meta: Record<string, unknown>
+  ): Promise<ActionExecutionResult<unknown>> => {
+    const normalized = expectsJson ? coerceJsonLike(rawText) : { text: rawText.trim() }
+  let outputValue: unknown = normalized.parsed ?? normalized.text
+  let parsedSource: string | undefined = normalized.source
+    let normalizationDetails: NormalizedStructuredResult | null = null
+
+    if (normalized.parsed !== undefined) {
+      normalizationDetails = normalizeStructuredOutput(normalized.parsed, config.schema)
+      outputValue = normalizationDetails.value
+      if (normalizationDetails.changed) {
+        parsedSource = "normalized"
+      }
+    }
+  let viewerKey: string | undefined
+
+    if (canUseViewer) {
+      try {
+        viewerKey = await stashAutomationResult(outputValue, {
+          taskId: step.id,
+          taskName: step.description ?? step.type,
+          stepId: step.id
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        logDebug("viewer-stash-error", { message })
+      }
+
+      if (viewerKey) {
+        if (autoOpenViewer) {
+          try {
+            openStashedAutomationResult(viewerKey)
+            logDebug("viewer-open", { viewerKey })
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            logDebug("viewer-open-error", { message })
+          }
+        }
+      }
+    }
+
+    const serializedOutput =
+      typeof outputValue === "string" ? outputValue : JSON.stringify(outputValue, null, 2)
+
+    const metaPayload: Record<string, unknown> = {
+      ...mergeMeta({
+        ...meta,
+        viewerAvailable: canUseViewer,
+        viewerAutoOpened: autoOpenViewer && Boolean(viewerKey),
+        expectsJson,
+        rawLength: normalized.text.length,
+        rawPreview: buildPreview(normalized.text)
+      })
+    }
+
+    if (viewerKey) {
+      metaPayload.viewerKey = viewerKey
+    }
+    if (normalized.parsed !== undefined) {
+      metaPayload.parsed = true
+      if (parsedSource) {
+        metaPayload.parsedSource = parsedSource
+      }
+    } else {
+      metaPayload.parsed = false
+    }
+
+    if (normalizationDetails?.changed) {
+      if (normalizationDetails.modifiedFields.length > 0) {
+        metaPayload.normalizedFields = normalizationDetails.modifiedFields
+      }
+      metaPayload.normalizedPreview = buildPreview(serializedOutput)
+    }
+
+    return {
+      success: true,
+      output: outputValue,
+      meta: metaPayload
+    }
+  }
+
+  const fallbackSuccess = (reason: string, extraMeta: Record<string, unknown> = {}) => {
+    logDebug("prompt-api-fallback", { reason })
+    return deliverResult(fallbackOutput, {
+      usedPromptApi: false,
+      fallbackUsed: true,
+      fallbackReason: reason,
+      ...extraMeta
+    })
+  }
+
+  const failure = (error: Error, extraMeta: Record<string, unknown> = {}) => ({
+    success: false,
+    error,
+    meta: mergeMeta({
+      usedPromptApi: true,
+      ...extraMeta
+    })
+  })
 
   logDebug("start", {
     hasSchema: Boolean(config.schema),
@@ -413,30 +532,19 @@ async function structuredPromptAction({
 
   if (!shouldUsePromptApi) {
     logDebug("prompt-api-skip", { reason: "disabled" })
-    return {
-      success: true,
-      output: fallbackOutput,
-      meta: {
-        format: config.outputFormat,
-        usedPromptApi: false,
-        ...(debugTrace ? { debug: debugTrace } : {})
-      }
-    }
+    return deliverResult(fallbackOutput, {
+      usedPromptApi: false
+    })
   }
 
   const languageModel = resolveLanguageModelNamespace()
   if (!languageModel?.create) {
     logDebug("prompt-api-missing", { reason: "namespace-missing" })
-    return {
-      success: false,
-      error: new Error("Chrome Prompt API is not available in this context"),
-      meta: {
-        usedPromptApi: false,
-        availability: "missing",
-        format: config.outputFormat,
-        ...(debugTrace ? { debug: debugTrace } : {})
-      }
+    const error = new Error("Chrome Prompt API is not available in this context")
+    if (allowFallback) {
+      return fallbackSuccess("namespace-missing", { availability: "missing" })
     }
+    return failure(error, { availability: "missing" })
   }
 
   const modelOptions: Record<string, unknown> = {
@@ -452,30 +560,19 @@ async function structuredPromptAction({
     } catch (error) {
       const normalized = error instanceof Error ? error : new Error(String(error))
       logDebug("availability-error", { message: normalized.message })
-      return {
-        success: false,
-        error: normalized,
-        meta: {
-          usedPromptApi: true,
-          availability: "error",
-          format: config.outputFormat,
-          ...(debugTrace ? { debug: debugTrace } : {})
-        }
+      if (allowFallback) {
+        return fallbackSuccess("availability-error", { availability: "error" })
       }
+      return failure(normalized, { availability: "error" })
     }
   }
 
   if (availability === "unavailable") {
-    return {
-      success: false,
-      error: new Error("Chrome Prompt API is unavailable on this device"),
-      meta: {
-        usedPromptApi: true,
-        availability,
-        format: config.outputFormat,
-        ...(debugTrace ? { debug: debugTrace } : {})
-      }
+    const error = new Error("Chrome Prompt API is unavailable on this device")
+    if (allowFallback) {
+      return fallbackSuccess("availability-unavailable", { availability })
     }
+    return failure(error, { availability })
   }
 
   const requiresDownload = availability === "downloadable" || availability === "downloading"
@@ -486,17 +583,17 @@ async function structuredPromptAction({
       : true
 
   if (requiresDownload && !isActivated) {
-    return {
-      success: false,
-      error: new Error("Prompt API session requires a user interaction before model download"),
-      meta: {
-        usedPromptApi: true,
+    const error = new Error("Prompt API session requires a user interaction before model download")
+    if (allowFallback) {
+      return fallbackSuccess("user-activation", {
         availability,
-        format: config.outputFormat,
-        needsUserActivation: true,
-        ...(debugTrace ? { debug: debugTrace } : {})
-      }
+        needsUserActivation: true
+      })
     }
+    return failure(error, {
+      availability,
+      needsUserActivation: true
+    })
   }
 
   let session: PromptApiSession
@@ -508,16 +605,10 @@ async function structuredPromptAction({
   } catch (error) {
     const normalized = error instanceof Error ? error : new Error(String(error))
     logDebug("session-create-error", { message: normalized.message })
-    return {
-      success: false,
-      error: normalized,
-      meta: {
-        usedPromptApi: true,
-        availability,
-        format: config.outputFormat,
-        ...(debugTrace ? { debug: debugTrace } : {})
-      }
+    if (allowFallback) {
+      return fallbackSuccess("session-create-error", { availability })
     }
+    return failure(normalized, { availability })
   }
 
   try {
@@ -537,54 +628,20 @@ async function structuredPromptAction({
 
     const result = await session.prompt(payload, options)
     const resultText = typeof result === "string" ? result : String(result)
-
-    let viewerKey: string | undefined
-    try {
-      viewerKey = await stashAutomationResult(resultText, {
-        taskId: step.id,
-        taskName: step.description ?? step.type,
-        stepId: step.id
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      logDebug("viewer-stash-error", { message })
-    }
-
-    if (viewerKey) {
-      try {
-        openStashedAutomationResult(viewerKey)
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        logDebug("viewer-open-error", { message })
-      }
-    }
-
-    return {
-      success: true,
-      output: resultText,
-      meta: {
-        usedPromptApi: true,
-        availability,
-        promptLength: filled.length,
-        resultLength: resultText.length,
-        schemaProvided: Boolean(config.schema),
-        format: config.outputFormat,
-        ...(debugTrace ? { debug: debugTrace } : {})
-      }
-    }
+    return deliverResult(resultText, {
+      usedPromptApi: true,
+      availability,
+      promptLength: filled.length,
+      resultLength: resultText.length,
+      schemaProvided: Boolean(config.schema)
+    })
   } catch (error) {
     const normalized = error instanceof Error ? error : new Error(String(error))
     logDebug("prompt-error", { message: normalized.message })
-    return {
-      success: false,
-      error: normalized,
-      meta: {
-        usedPromptApi: true,
-        availability,
-        format: config.outputFormat,
-        ...(debugTrace ? { debug: debugTrace } : {})
-      }
+    if (allowFallback) {
+      return fallbackSuccess("prompt-error", { availability })
     }
+    return failure(normalized, { availability })
   } finally {
     try {
       session.destroy?.()
@@ -612,6 +669,369 @@ function renderPromptTemplate(
 
     return `{{${key}}}`
   })
+}
+
+type CoercedJsonResult = {
+  text: string
+  parsed?: unknown
+  source?: "direct" | "fenced" | "balanced" | "trimmed"
+}
+
+type NormalizedStructuredResult = {
+  value: unknown
+  changed: boolean
+  modifiedFields: string[]
+}
+
+type JsonSchema = {
+  type?: string | string[]
+  properties?: Record<string, unknown>
+  items?: JsonSchema | JsonSchema[]
+}
+
+type SchemaHints = {
+  stringProps: Set<string>
+  stringArrayProps: Set<string>
+}
+
+const KNOWN_STRING_FIELDS = new Set(["summary"])
+const KNOWN_STRING_ARRAY_FIELDS = new Set([
+  "highlights",
+  "blockers",
+  "nextFocus",
+  "actionItems",
+  "suggestedClarifications",
+  "testPlan"
+])
+
+function coerceJsonLike(rawValue: string): CoercedJsonResult {
+  const trimmed = rawValue.trim()
+  const candidates: Array<{ value: string; source: CoercedJsonResult["source"] }> = []
+
+  if (trimmed) {
+    candidates.push({ value: trimmed, source: "direct" })
+  }
+
+  const fenced = stripCodeFence(trimmed)
+  if (fenced && fenced !== trimmed) {
+    candidates.push({ value: fenced, source: "fenced" })
+  }
+
+  const balanced = extractBalancedJson(trimmed)
+  if (balanced && balanced !== trimmed) {
+    candidates.push({ value: balanced, source: "balanced" })
+  }
+
+  for (const candidate of candidates) {
+    const parsed = tryParseCandidate(candidate.value)
+    if (parsed.success) {
+      return {
+        text: parsed.text,
+        parsed: parsed.value,
+        source: candidate.source
+      }
+    }
+  }
+
+  return {
+    text: trimmed,
+    source: "trimmed"
+  }
+}
+
+function normalizeStructuredOutput(
+  value: unknown,
+  schema?: Record<string, unknown>
+): NormalizedStructuredResult {
+  if (!isPlainRecord(value)) {
+    return { value, changed: false, modifiedFields: [] }
+  }
+
+  const hints = extractSchemaHints(schema)
+  KNOWN_STRING_FIELDS.forEach((field) => hints.stringProps.add(field))
+  KNOWN_STRING_ARRAY_FIELDS.forEach((field) => hints.stringArrayProps.add(field))
+
+  const working: Record<string, unknown> = { ...value }
+  const modified = new Set<string>()
+  let changed = false
+
+  for (const key of hints.stringArrayProps) {
+    if (!Object.prototype.hasOwnProperty.call(working, key)) {
+      continue
+    }
+
+    const current = working[key]
+    const { value: coerced, changed: fieldChanged } = coerceStringArrayField(current)
+    if (fieldChanged) {
+      changed = true
+      modified.add(key)
+    }
+    working[key] = coerced
+  }
+
+  for (const key of hints.stringProps) {
+    if (!Object.prototype.hasOwnProperty.call(working, key)) {
+      continue
+    }
+
+    const current = working[key]
+    const { value: coerced, changed: fieldChanged } = coerceStringField(current)
+    if (fieldChanged) {
+      changed = true
+      modified.add(key)
+    }
+    working[key] = coerced
+  }
+
+  if (!changed) {
+    return { value, changed: false, modifiedFields: [] }
+  }
+
+  return { value: working, changed: true, modifiedFields: Array.from(modified) }
+}
+
+function extractSchemaHints(schema?: Record<string, unknown>): SchemaHints {
+  const hints: SchemaHints = {
+    stringProps: new Set<string>(),
+    stringArrayProps: new Set<string>()
+  }
+
+  if (!isPlainRecord(schema)) {
+    return hints
+  }
+
+  const properties = (schema.properties ?? {}) as Record<string, unknown>
+  for (const [key, descriptor] of Object.entries(properties)) {
+    if (!isPlainRecord(descriptor)) {
+      continue
+    }
+
+    const typedDescriptor = descriptor as JsonSchema
+    const types = normalizeSchemaType(typedDescriptor.type)
+
+    if (types.includes("string")) {
+      hints.stringProps.add(key)
+    }
+
+    if (types.includes("array") && schemaHasStringItems(typedDescriptor.items)) {
+      hints.stringArrayProps.add(key)
+    }
+  }
+
+  return hints
+}
+
+function schemaHasStringItems(items: JsonSchema | JsonSchema[] | undefined) {
+  if (!items) {
+    return false
+  }
+
+  if (Array.isArray(items)) {
+    return items.some((entry) => normalizeSchemaType(entry?.type).includes("string"))
+  }
+
+  return normalizeSchemaType(items.type).includes("string")
+}
+
+function normalizeSchemaType(type: JsonSchema["type"]) {
+  if (typeof type === "string") {
+    return [type]
+  }
+  if (Array.isArray(type)) {
+    return type.filter((entry): entry is string => typeof entry === "string")
+  }
+  return []
+}
+
+function coerceStringArrayField(value: unknown): { value: string[]; changed: boolean } {
+  if (value === undefined || value === null) {
+    return { value: [], changed: true }
+  }
+
+  const flattened = flattenStringList(value)
+  const unchanged = arraysShallowEqual(value, flattened)
+  return { value: flattened, changed: !unchanged }
+}
+
+function coerceStringField(value: unknown): { value: string; changed: boolean } {
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    return { value: trimmed, changed: trimmed !== value }
+  }
+
+  if (value === undefined || value === null) {
+    return { value: "", changed: true }
+  }
+
+  const flattened = flattenStringList(value)
+  if (flattened.length === 0) {
+    return { value: "", changed: true }
+  }
+
+  return { value: flattened.join("\n"), changed: true }
+}
+
+function flattenStringList(value: unknown): string[] {
+  const result: string[] = []
+  const seen = new Set<string>()
+
+  const push = (entry: string) => {
+    const trimmed = entry.trim()
+    if (!trimmed || seen.has(trimmed)) {
+      return
+    }
+    seen.add(trimmed)
+    result.push(trimmed)
+  }
+
+  const visit = (entry: unknown) => {
+    if (entry === undefined || entry === null) {
+      return
+    }
+
+    if (typeof entry === "string") {
+      const pieces = entry
+        .split(/\r?\n+/)
+        .map((part) => part.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
+        .filter(Boolean)
+      if (pieces.length === 0) {
+        return
+      }
+      pieces.forEach(push)
+      return
+    }
+
+    if (typeof entry === "number" || typeof entry === "boolean") {
+      push(String(entry))
+      return
+    }
+
+    if (Array.isArray(entry)) {
+      entry.forEach(visit)
+      return
+    }
+
+    if (isPlainRecord(entry)) {
+      const record = entry as Record<string, unknown>
+      const textKeys = ["text", "title", "label", "name", "summary", "description", "value"]
+      const collected = textKeys
+        .map((key) => (typeof record[key] === "string" ? (record[key] as string) : null))
+        .filter((segment): segment is string => Boolean(segment))
+
+      if (collected.length > 0) {
+        visit(collected.join(": "))
+        return
+      }
+
+      try {
+        push(JSON.stringify(entry))
+      } catch {
+        // noop
+      }
+      return
+    }
+
+    try {
+      push(String(entry))
+    } catch {
+      // noop
+    }
+  }
+
+  visit(value)
+  return result
+}
+
+function arraysShallowEqual(source: unknown, target: string[]) {
+  if (source === undefined || source === null) {
+    return target.length === 0
+  }
+
+  if (!Array.isArray(source)) {
+    return false
+  }
+
+  if (source.length !== target.length) {
+    return false
+  }
+
+  for (let index = 0; index < source.length; index += 1) {
+    const entry = source[index]
+    if (typeof entry !== "string") {
+      return false
+    }
+    if (entry.trim() !== target[index]) {
+      return false
+    }
+  }
+
+  return true
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function stripCodeFence(value: string) {
+  if (!value.startsWith("```")) {
+    return value
+  }
+
+  const firstBreak = value.indexOf("\n")
+  if (firstBreak === -1) {
+    return value
+  }
+
+  const closingFence = value.lastIndexOf("```")
+  if (closingFence <= firstBreak) {
+    return value
+  }
+
+  const inner = value.slice(firstBreak + 1, closingFence).trim()
+  return inner.length > 0 ? inner : value
+}
+
+function extractBalancedJson(value: string) {
+  const braceStart = value.indexOf("{")
+  const braceEnd = value.lastIndexOf("}")
+  if (braceStart !== -1 && braceEnd > braceStart) {
+    return value.slice(braceStart, braceEnd + 1)
+  }
+
+  const bracketStart = value.indexOf("[")
+  const bracketEnd = value.lastIndexOf("]")
+  if (bracketStart !== -1 && bracketEnd > bracketStart) {
+    return value.slice(bracketStart, bracketEnd + 1)
+  }
+
+  return value
+}
+
+function tryParseCandidate(candidate: string) {
+  const attempts = [candidate, candidate.endsWith(";") ? candidate.slice(0, -1) : null].filter(
+    (entry): entry is string => Boolean(entry)
+  )
+
+  for (const attempt of attempts) {
+    try {
+      return { success: true as const, value: JSON.parse(attempt), text: attempt }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (/Unexpected token ['"`]/i.test(message)) {
+        continue
+      }
+    }
+  }
+
+  return { success: false as const, text: candidate }
+}
+
+function buildPreview(value: string, limit = 360) {
+  const trimmed = value.trim()
+  if (trimmed.length <= limit) {
+    return trimmed
+  }
+  return `${trimmed.slice(0, limit)}…`
 }
 
 function formatTemplateOutput(

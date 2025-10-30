@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useState } from "react"
 import type { LucideIcon } from "lucide-react"
-import { Check, CircleHelp, Copy, FileText, ListChecks, Shield } from "lucide-react"
+import {
+  AlertTriangle,
+  Check,
+  CircleHelp,
+  ClipboardCheck,
+  Copy,
+  FileText,
+  ListChecks,
+  Shield,
+  Sparkles,
+  Target
+} from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -147,20 +158,8 @@ const SECTION_LIBRARY: SectionDescriptor[] = [
     title: "Suggested clarifications",
     description: "Questions or gaps to resolve before implementation.",
     icon: CircleHelp,
-    render: (value) =>
-      Array.isArray(value) && value.length > 0 ? (
-        <ul className="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
-          {value.filter((item): item is string => typeof item === "string").map((item, index) => (
-            <li key={`${item}_${index}`}>{item}</li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-sm text-muted-foreground">No clarifications provided.</p>
-      ),
-    copyValue: (value) =>
-      Array.isArray(value) && value.length > 0
-        ? value.filter((item): item is string => typeof item === "string").join("\n")
-        : null
+    render: (value) => renderStringList(value, "No clarifications provided."),
+    copyValue: (value) => copyStringList(value)
   },
   {
     key: "riskLevel",
@@ -175,24 +174,105 @@ const SECTION_LIBRARY: SectionDescriptor[] = [
     title: "Test plan ideas",
     description: "Suggested validations to cover before shipping.",
     icon: ListChecks,
-    render: (value) =>
-      Array.isArray(value) && value.length > 0 ? (
-        <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
-          {value.filter((item): item is string => typeof item === "string").map((item, index) => (
-            <li key={`${item}_${index}`}>{item}</li>
-          ))}
-        </ol>
-      ) : (
-        <p className="text-sm text-muted-foreground">No test plan suggestions available.</p>
-      ),
-    copyValue: (value) =>
-      Array.isArray(value) && value.length > 0
-        ? value.filter((item): item is string => typeof item === "string").join("\n")
-        : null
+    render: (value) => renderStringList(value, "No test plan suggestions available."),
+    copyValue: (value) => copyStringList(value)
+  },
+  {
+    key: "actionItems",
+    title: "Action items",
+    description: "Explicit follow-ups extracted from the prompt output.",
+    icon: ClipboardCheck,
+    render: (value) => renderStringList(value, "No action items captured."),
+    copyValue: (value) => copyStringList(value)
+  },
+  {
+    key: "highlights",
+    title: "Highlights",
+    description: "Key wins or notable updates surfaced by the automation.",
+    icon: Sparkles,
+    render: (value) => renderStringList(value, "No highlights detected."),
+    copyValue: (value) => copyStringList(value)
+  },
+  {
+    key: "blockers",
+    title: "Blockers",
+    description: "Stated risks or impediments from the summary.",
+    icon: AlertTriangle,
+    render: (value) => renderStringList(value, "No blockers recorded."),
+    copyValue: (value) => copyStringList(value)
+  },
+  {
+    key: "nextFocus",
+    title: "Next focus",
+    description: "Upcoming priorities inferred from the notes.",
+    icon: Target,
+    render: (value) => renderStringList(value, "No upcoming focus recorded."),
+    copyValue: (value) => copyStringList(value)
   }
 ]
 
+function resolveStructuredPayload(payload: ViewerPayload | null) {
+  if (!payload) {
+    return undefined
+  }
+
+  if (payload.parsed !== undefined) {
+    return payload.parsed
+  }
+
+  const raw = payload.raw?.trim()
+  if (!raw) {
+    return undefined
+  }
+
+  if (raw.startsWith("{") || raw.startsWith("[")) {
+    try {
+      return JSON.parse(raw)
+    } catch (error) {
+      debug("fallback-parse-error", {
+        message: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+
+  return raw
+}
+
 function buildSections(parsed: unknown) {
+  if (parsed === null || parsed === undefined) {
+    return [] as Array<{ descriptor: SectionDescriptor; value: unknown }>
+  }
+
+  if (Array.isArray(parsed)) {
+    return [
+      {
+        descriptor: {
+          key: "root-items",
+          title: "Structured items",
+          description: "Array output from the automation run.",
+          icon: ListChecks,
+          render: (value) => renderDynamicValue(value)
+        },
+        value: parsed
+      }
+    ]
+  }
+
+  if (typeof parsed === "string" || typeof parsed === "number" || typeof parsed === "boolean") {
+    return [
+      {
+        descriptor: {
+          key: "root-value",
+          title: "Result",
+          description: "Raw value returned by the automation run.",
+          icon: FileText,
+          render: (value) => renderDynamicValue(value)
+        },
+        value: parsed
+      }
+    ]
+  }
+
   if (!parsed || typeof parsed !== "object") {
     return [] as Array<{ descriptor: SectionDescriptor; value: unknown }>
   }
@@ -213,19 +293,10 @@ function buildSections(parsed: unknown) {
     .map(([key, value]) => ({
       descriptor: {
         key,
-        title: key,
+        title: formatKeyLabel(key),
         description: undefined,
         icon: undefined,
-        render: (renderValue: unknown) => (
-          <CodeSurface
-            value={
-              typeof renderValue === "string"
-                ? renderValue
-                : JSON.stringify(renderValue, null, 2)
-            }
-            className="max-h-60"
-          />
-        ),
+        render: (renderValue: unknown) => renderDynamicValue(renderValue),
         copyValue: (copyValue: unknown) =>
           typeof copyValue === "string" ? copyValue : JSON.stringify(copyValue, null, 2)
       } satisfies SectionDescriptor,
@@ -233,6 +304,173 @@ function buildSections(parsed: unknown) {
     }))
 
   return [...recognized, ...extras]
+}
+
+function renderStringList(value: unknown, emptyCopy: string) {
+  const entries = normalizeStringList(value)
+  if (entries.length === 0) {
+    return <p className="text-sm text-muted-foreground">{emptyCopy}</p>
+  }
+
+  return (
+    <ul className="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
+      {entries.map((item, index) => (
+        <li key={`${item}_${index}`}>{item}</li>
+      ))}
+    </ul>
+  )
+}
+
+function copyStringList(value: unknown) {
+  const entries = normalizeStringList(value)
+  return entries.length > 0 ? entries.join("\n") : null
+}
+
+function normalizeStringList(value: unknown): string[] {
+  const unique = new Set<string>()
+
+  if (Array.isArray(value)) {
+    value.forEach((item) => {
+      if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") {
+        const normalized = String(item).trim()
+        if (normalized) {
+          unique.add(normalized)
+        }
+      } else if (item && typeof item === "object") {
+        normalizeStringList(item).forEach((entry) => unique.add(entry))
+      }
+    })
+    return Array.from(unique)
+  }
+
+  if (typeof value === "string") {
+    value
+      .split(/\r?\n+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .forEach((entry) => unique.add(entry))
+    return Array.from(unique)
+  }
+
+  if (value && typeof value === "object") {
+    Object.values(value).forEach((item) => {
+      if (typeof item === "string") {
+        const normalized = item.trim()
+        if (normalized) {
+          unique.add(normalized)
+        }
+      }
+    })
+    return Array.from(unique)
+  }
+
+  return []
+}
+
+function renderDynamicValue(value: unknown, depth = 0): React.ReactNode {
+  if (value === null || value === undefined) {
+    return <p className="text-sm text-muted-foreground">—</p>
+  }
+
+  if (typeof value === "string") {
+    return <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{value}</p>
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return (
+      <Badge variant="outline" className="text-xs">
+        {String(value)}
+      </Badge>
+    )
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return <p className="text-sm text-muted-foreground">(empty list)</p>
+    }
+
+    const primitives = value.every(isPrimitive)
+    if (primitives) {
+      return (
+        <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+          {value.map((item, index) => (
+            <li key={`${item}_${index}`}>{String(item)}</li>
+          ))}
+        </ul>
+      )
+    }
+
+    return (
+      <div className="space-y-3">
+        {value.map((entry, index) => (
+          <div
+            key={index}
+            className={cn(
+              "rounded-lg border border-border/60 bg-muted/30 p-3",
+              depth > 0 ? "bg-muted/20" : undefined
+            )}
+          >
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
+              Item {index + 1}
+            </p>
+            <div className="mt-2 space-y-2">
+              {renderDynamicValue(entry, depth + 1)}
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  if (isPlainRecord(value)) {
+    const entries = Object.entries(value)
+    if (entries.length === 0) {
+      return <p className="text-sm text-muted-foreground">(empty object)</p>
+    }
+
+    return (
+      <div className="space-y-2">
+        {entries.map(([key, entryValue]) => (
+          <div
+            key={key}
+            className={cn(
+              "rounded-md border border-border/60 bg-muted/30 p-3",
+              depth > 0 ? "bg-background/70" : undefined
+            )}
+          >
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
+              {formatKeyLabel(key)}
+            </p>
+            <div className="mt-1 space-y-1">
+              {renderDynamicValue(entryValue, depth + 1)}
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  try {
+    return <CodeSurface value={JSON.stringify(value, null, 2)} className="max-h-48" />
+  } catch (_error) {
+    return <CodeSurface value={String(value)} className="max-h-48" />
+  }
+}
+
+function formatKeyLabel(key: string) {
+  return key
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .replace(/^./, (char) => char.toUpperCase())
+}
+
+function isPrimitive(value: unknown): value is string | number | boolean {
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function formatDate(timestamp: number) {
@@ -262,7 +500,8 @@ export default function PromptViewer() {
   const { state, payload, errorMessage } = useViewerData()
   const { copyState, copy } = useCopy()
 
-  const sections = useMemo(() => buildSections(payload?.parsed), [payload])
+  const structuredPayload = useMemo(() => resolveStructuredPayload(payload), [payload])
+  const sections = useMemo(() => buildSections(structuredPayload), [structuredPayload])
 
   if (state === "loading") {
     return (
@@ -321,6 +560,14 @@ export default function PromptViewer() {
               <p className="text-sm text-muted-foreground">
                 Re-run the flow or adjust your prompt to produce structured fields such as summary, clarifications, or test plan.
               </p>
+              {payload?.raw ? (
+                <>
+                  <p className="mt-3 text-xs uppercase tracking-wide text-muted-foreground/70">
+                    Raw output
+                  </p>
+                  <CodeSurface value={payload.raw} className="mt-1" />
+                </>
+              ) : null}
             </CardContent>
           </Card>
         ) : (

@@ -3,7 +3,7 @@ import type { TaskDefinition } from "./types"
 export const dailyDeveloperRecap: TaskDefinition = {
   id: "daily-dev",
   name: "Daily developer recap",
-  description: "Summarize recent work and generate a recap outline.",
+  description: "Extract work notes, transform them with the Prompt API, and persist the recap.",
   steps: [
     {
       id: "pageContent",
@@ -13,28 +13,69 @@ export const dailyDeveloperRecap: TaskDefinition = {
         source: "active-tab",
         fallback:
           "Today I wrapped up the auth migration, fixed the flaky integration tests, and planned tomorrow's bug-bash for the release candidate.",
-        maxLength: 4000
+        maxLength: 6000
       }
     },
     {
-      id: "summary",
-      type: "summarize-text",
-      description: "Summarize the captured content",
-      config: {
-        maxSentences: 2
-      }
-    },
-    {
-      id: "prompt",
+      id: "recapAnalysis",
       type: "structured-prompt",
-      description: "Generate a recap prompt ready for an LLM",
+      description: "Process the captured content with the Prompt API",
       config: {
         template:
-          "Daily standup recap:\nHighlights: {{summary}}\nNext focus: Ensure deployment readiness and monitor analytics pipeline.",
+          "Format version: {{formatVersion}}\nYou are preparing a JSON summary for an engineering daily update. Rely only on the supplied notes. The response MUST be valid JSON with no Markdown, code fences, or commentary. Keep entries concise and avoid duplicate bullet points.\n\nSchema fields:\n- summary: string\n- highlights: array of string (max 5)\n- blockers: array of string (max 3, return [] when none)\n- nextFocus: array of string (max 3)\n- actionItems: array of string (max 5)\n\nRules:\n1. Only emit the JSON object defined by the schema.\n2. Trim whitespace, remove bullet prefixes, and avoid numbering.\n3. Use [] for empty lists and an empty string for summary when content is missing.\n\nNotes:\n{{input}}",
         variables: {
-          title: "Daily standup recap"
+          formatVersion: "v1"
         },
-        outputFormat: "markdown"
+        schema: {
+          type: "object",
+          properties: {
+            summary: { type: "string" },
+            highlights: {
+              type: "array",
+              items: { type: "string" },
+              maxItems: 5
+            },
+            blockers: {
+              type: "array",
+              items: { type: "string" },
+              maxItems: 3
+            },
+            nextFocus: {
+              type: "array",
+              items: { type: "string" },
+              maxItems: 3
+            },
+            actionItems: {
+              type: "array",
+              items: { type: "string" },
+              maxItems: 5
+            }
+          },
+          required: ["summary", "highlights", "nextFocus"],
+          additionalProperties: false
+        },
+        systemPrompt:
+          "You are a staff engineer composing a daily async update. Provide grounded, factual summaries only.",
+        outputFormat: "text",
+        outputLanguage: "en",
+        usePromptApi: true,
+        fallbackToTemplate: true,
+        coerceJsonOutput: true
+      }
+    },
+    {
+      id: "persistRecap",
+      type: "store-artifact",
+      description: "Persist the recap for later review",
+      config: {
+        artifactType: "daily-dev-recap",
+        metadata: {
+          presetId: "daily-dev",
+          schemaVersion: "v1"
+        },
+        tags: ["daily", "recap", "automation"],
+        parseJson: true,
+        skipWhenEmpty: false
       }
     }
   ]

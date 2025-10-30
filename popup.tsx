@@ -14,9 +14,20 @@ import {
   type WorkflowRunRecord
 } from "@/lib/automation"
 import { listArtifacts } from "@/lib/storage"
-import { openAutomationResultViewer } from "@/lib/viewer"
+import { openStashedAutomationResult } from "@/lib/viewer"
 import { cn } from "@/lib/utils"
-import { ArrowRight, BookOpen, Bot, Cpu, PlusCircle, Sparkles } from "lucide-react"
+import {
+  ArrowRight,
+  BookOpen,
+  Bot,
+  CheckCircle2,
+  Clock3,
+  Cpu,
+  Loader2,
+  PlusCircle,
+  Sparkles,
+  XCircle
+} from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 type QuickAction = {
@@ -27,6 +38,201 @@ type QuickAction = {
   iconClassName?: string
   presetId?: PresetId
   initialInput?: unknown
+}
+
+type StepRunStatus = "pending" | "running" | "succeeded" | "failed"
+
+type WorkflowStepSnapshot = {
+  key: string
+  index: number
+  stepId?: string
+  type: string
+  description?: string
+  status: StepRunStatus
+  outputPreview?: string | null
+  meta?: Record<string, unknown>
+  error?: string | null
+  startedAt?: number
+  finishedAt?: number
+}
+
+type WorkflowStepPatch = {
+  status?: StepRunStatus
+  outputPreview?: string | null
+  meta?: Record<string, unknown> | null
+  error?: string | null
+  startedAt?: number
+  finishedAt?: number
+}
+
+const STEP_STATUS_META: Record<StepRunStatus, { label: string; className: string; icon: LucideIcon }> = {
+  pending: {
+    label: "Pending",
+    className: "text-muted-foreground",
+    icon: Clock3
+  },
+  running: {
+    label: "Running",
+    className: "text-primary",
+    icon: Loader2
+  },
+  succeeded: {
+    label: "Succeeded",
+    className: "text-emerald-600",
+    icon: CheckCircle2
+  },
+  failed: {
+    label: "Failed",
+    className: "text-destructive",
+    icon: XCircle
+  }
+}
+
+const RUN_STATUS_META: Record<WorkflowRunRecord["status"], { label: string; className: string }> = {
+  queued: {
+    label: "Queued",
+    className: "text-muted-foreground"
+  },
+  running: {
+    label: "Running",
+    className: "text-primary"
+  },
+  succeeded: {
+    label: "Succeeded",
+    className: "text-emerald-600"
+  },
+  failed: {
+    label: "Failed",
+    className: "text-destructive"
+  },
+  cancelled: {
+    label: "Cancelled",
+    className: "text-muted-foreground"
+  }
+}
+
+const PREVIEW_LIMIT = 320
+const MAX_DEBUG_ENTRIES = 8
+
+function resolveDebugEnvFlag() {
+  const processEnv =
+    typeof process !== "undefined" &&
+    (process.env as Record<string, string | undefined> | undefined)
+
+  if (processEnv?.PLASMO_PUBLIC_AUTOMATION_DEBUG === "true") {
+    return true
+  }
+
+  try {
+    const metaEnv = (import.meta as unknown as { env?: Record<string, unknown> }).env
+    if (metaEnv?.PLASMO_PUBLIC_AUTOMATION_DEBUG === "true") {
+      return true
+    }
+  } catch (_error) {
+    // no-op
+  }
+
+  return false
+}
+
+function initializeStepSnapshots(task: TaskDefinition): WorkflowStepSnapshot[] {
+  return task.steps.map((step, index) => ({
+    key: step.id ?? `${step.type}-${index}`,
+    index,
+    stepId: step.id,
+    type: step.type,
+    description: step.description,
+    status: "pending"
+  }))
+}
+
+function formatOutputPreview(output: unknown): string | null {
+  if (output == null) {
+    return null
+  }
+
+  if (typeof output === "string") {
+    const trimmed = output.trim()
+    if (!trimmed) {
+      return null
+    }
+    return trimmed.length > PREVIEW_LIMIT ? `${trimmed.slice(0, PREVIEW_LIMIT)}…` : trimmed
+  }
+
+  try {
+    const serialized = JSON.stringify(output, null, 2)
+    return serialized.length > PREVIEW_LIMIT ? `${serialized.slice(0, PREVIEW_LIMIT)}…` : serialized
+  } catch (_error) {
+    return String(output)
+  }
+}
+
+function summarizeStepMeta(meta: unknown, debugMode: boolean): Record<string, unknown> | null {
+  if (!meta || typeof meta !== "object") {
+    return null
+  }
+
+  const record = meta as Record<string, unknown>
+  const summary: Record<string, unknown> = {}
+
+  if (typeof record.viewerKey === "string") {
+    summary.viewerKey = record.viewerKey
+  }
+  if (record.fallbackUsed) {
+    summary.fallbackUsed = true
+    if (typeof record.fallbackReason === "string") {
+      summary.fallbackReason = record.fallbackReason
+    }
+  }
+  if (typeof record.usedPromptApi === "boolean") {
+    summary.usedPromptApi = record.usedPromptApi
+  }
+  if (typeof record.rawPreview === "string" && record.rawPreview) {
+    summary.rawPreview = record.rawPreview
+  }
+  if (typeof record.normalizedPreview === "string" && record.normalizedPreview) {
+    summary.normalizedPreview = record.normalizedPreview
+  }
+  if (typeof record.artifactId === "string") {
+    summary.artifactId = record.artifactId
+  }
+  if (typeof record.artifactType === "string") {
+    summary.artifactType = record.artifactType
+  }
+  if (typeof record.viewerAvailable === "boolean") {
+    summary.viewerAvailable = record.viewerAvailable
+  }
+  if (typeof record.rawLength === "number") {
+    summary.rawLength = record.rawLength
+  }
+  if (record.parsed) {
+    summary.parsed = true
+    if (typeof record.parsedSource === "string") {
+      summary.parsedSource = record.parsedSource
+    }
+  } else if (typeof record.parsed === "boolean") {
+    summary.parsed = false
+  }
+  if (Array.isArray(record.normalizedFields) && record.normalizedFields.length > 0) {
+    summary.normalizedFields = record.normalizedFields
+  }
+
+  if (debugMode) {
+    if (Array.isArray(record.debug) && record.debug.length > 0) {
+      summary.debug = record.debug.slice(-MAX_DEBUG_ENTRIES)
+    }
+    if (typeof record.promptLength === "number") {
+      summary.promptLength = record.promptLength
+    }
+    if (typeof record.resultLength === "number") {
+      summary.resultLength = record.resultLength
+    }
+    if (record.expectsJson) {
+      summary.expectsJson = record.expectsJson
+    }
+  }
+
+  return Object.keys(summary).length > 0 ? summary : null
 }
 
 const QUICK_ACTIONS: QuickAction[] = [
@@ -106,11 +312,169 @@ const STORAGE_TEST_SAMPLE = JSON.stringify(
 function IndexPopup() {
   const manager = useMemo(() => new WorkflowManager(), [])
   const [runs, setRuns] = useState<WorkflowRunRecord[]>([])
+  const [stepStateByRun, setStepStateByRun] = useState<Record<string, WorkflowStepSnapshot[]>>({})
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [storageTestStatus, setStorageTestStatus] = useState<string | null>(null)
+
+  const debugMode = useMemo(() => {
+    const envFlag = resolveDebugEnvFlag()
+    const runtimeFlag =
+      typeof window !== "undefined" &&
+      Boolean((window as { __AUTO_BORING_DEBUG__?: boolean }).__AUTO_BORING_DEBUG__)
+    return envFlag || runtimeFlag
+  }, [])
 
   useEffect(() => manager.subscribe(setRuns), [manager])
 
+  useEffect(() => {
+    if (runs.length === 0) {
+      setSelectedRunId(null)
+      return
+    }
+
+    if (selectedRunId && runs.some((run) => run.id === selectedRunId)) {
+      return
+    }
+
+    setSelectedRunId(runs[0]?.id ?? null)
+  }, [runs, selectedRunId])
+
   const quickActions = useMemo(() => QUICK_ACTIONS, [])
+
+  const registerRunTimeline = useCallback((runId: string, task: TaskDefinition) => {
+    setStepStateByRun((previous) => {
+      if (previous[runId]) {
+        return previous
+      }
+      return {
+        ...previous,
+        [runId]: initializeStepSnapshots(task)
+      }
+    })
+  }, [])
+
+  const patchStepState = useCallback(
+    (runId: string, stepIndex: number, patch: WorkflowStepPatch) => {
+      setStepStateByRun((previous) => {
+        const steps = previous[runId]
+        if (!steps || !steps[stepIndex]) {
+          return previous
+        }
+
+        const nextSteps = steps.slice()
+        const current = nextSteps[stepIndex]
+        const { meta, ...rest } = patch
+        nextSteps[stepIndex] = {
+          ...current,
+          ...rest,
+          meta: meta === undefined ? current.meta : meta ?? undefined
+        }
+
+        return {
+          ...previous,
+          [runId]: nextSteps
+        }
+      })
+    },
+    []
+  )
+
+  useEffect(() => {
+    setStepStateByRun((previous) => {
+      let changed = false
+      const next = { ...previous }
+
+      for (const run of runs) {
+        if (!run.result || next[run.id]) {
+          continue
+        }
+
+        changed = true
+        next[run.id] = run.result.steps.map((entry, index) => ({
+          key: entry.step.id ?? `${entry.step.type}-${index}`,
+          index,
+          stepId: entry.step.id,
+          type: entry.step.type,
+          description: entry.step.description,
+          status: entry.result.success ? "succeeded" : "failed",
+          outputPreview: formatOutputPreview(entry.result.output),
+          meta: summarizeStepMeta(entry.result.meta, debugMode) ?? undefined,
+          error: entry.result.success
+            ? null
+            : entry.result.error?.message ?? "Action failed"
+        }))
+      }
+
+      return changed ? next : previous
+    })
+  }, [debugMode, runs])
+
+  const createInstrumentedRunOptions = useCallback(
+    (task: TaskDefinition, overrides: TaskRunOptions = {}) => {
+      const runState = { id: "" }
+      const baseOnStepStart = overrides.onStepStart
+      const baseOnStepComplete = overrides.onStepComplete
+      const baseOnError = overrides.onError
+
+      const runOptions: TaskRunOptions = {
+        ...overrides,
+        onStepStart(step, index) {
+          if (runState.id) {
+            patchStepState(runState.id, index, {
+              status: "running",
+              startedAt: Date.now(),
+              error: null,
+              outputPreview: null
+            })
+          }
+          baseOnStepStart?.(step, index)
+        },
+        onStepComplete(step, result, index) {
+          if (runState.id) {
+            const outputPreview = formatOutputPreview(result.output)
+            const summarizedMeta = summarizeStepMeta(result.meta, debugMode)
+            patchStepState(runState.id, index, {
+              status: result.success ? "succeeded" : "failed",
+              finishedAt: Date.now(),
+              outputPreview,
+              meta: summarizedMeta,
+              error: result.success
+                ? null
+                : result.error?.message ?? "Action failed"
+            })
+          }
+          baseOnStepComplete?.(step, result, index)
+        },
+        onError(step, error, index) {
+          if (runState.id) {
+            patchStepState(runState.id, index, {
+              status: "failed",
+              finishedAt: Date.now(),
+              error: error.message
+            })
+          }
+          baseOnError?.(step, error, index)
+        }
+      }
+
+      const assignRunId = (runId: string) => {
+        runState.id = runId
+        registerRunTimeline(runId, task)
+        setSelectedRunId(runId)
+      }
+
+      return { runOptions, assignRunId }
+    },
+    [debugMode, patchStepState, registerRunTimeline]
+  )
+
+  const handleViewerOpen = useCallback((viewerKey: string) => {
+    try {
+      openStashedAutomationResult(viewerKey)
+    } catch (error) {
+      console.error("Unable to open viewer", error)
+    }
+  }, [])
 
   const activeRuns = useMemo(
     () =>
@@ -150,6 +514,18 @@ function IndexPopup() {
     )
   }, [latestFailure])
 
+  const selectedRun = useMemo(
+    () => (selectedRunId ? runs.find((run) => run.id === selectedRunId) ?? null : null),
+    [runs, selectedRunId]
+  )
+
+  const selectedTimeline = useMemo(() => {
+    if (!selectedRunId) {
+      return [] as WorkflowStepSnapshot[]
+    }
+    return stepStateByRun[selectedRunId] ?? []
+  }, [selectedRunId, stepStateByRun])
+
   const latestReadMeta = useMemo(() => {
     const readStep = latestSuccess?.result?.steps.find((entry) => entry.step.type === "read-page")
     const meta = readStep?.result.meta
@@ -180,6 +556,59 @@ function IndexPopup() {
     }
   }, [latestReadMeta])
 
+  const successMessage = useMemo(() => {
+    if (!latestSuccess?.result) {
+      return null
+    }
+
+    const storeStep = latestSuccess.result.steps.find((entry) => entry.step.type === "store-artifact")
+    const storeMeta = storeStep?.result.meta as Record<string, unknown> | undefined
+    const artifactId = typeof storeMeta?.artifactId === "string" ? storeMeta.artifactId : undefined
+    const artifactType = typeof storeMeta?.artifactType === "string" ? storeMeta.artifactType : undefined
+
+    if (!artifactId && !artifactType) {
+      return null
+    }
+
+    const runLabel = latestSuccess.taskName ?? latestSuccess.taskId
+    const typeLabel = artifactType ?? "artifact"
+    const idSuffix = artifactId ? ` (#${artifactId.slice(0, 6)})` : ""
+
+    return `${runLabel} stored ${typeLabel}${idSuffix}`
+  }, [latestSuccess])
+
+  const promptDiagnostics = useMemo(() => {
+    if (!latestSuccess?.result) {
+      return null
+    }
+
+    const promptStep = latestSuccess.result.steps.find(
+      (entry) => entry.step.type === "structured-prompt"
+    )
+    const meta = promptStep?.result.meta as Record<string, unknown> | undefined
+    if (!meta) {
+      return null
+    }
+
+    const usedPromptApi = Boolean(meta.usedPromptApi)
+    const fallbackUsed = Boolean(meta.fallbackUsed)
+    const fallbackReason = typeof meta.fallbackReason === "string" ? meta.fallbackReason : undefined
+    const viewerKey = typeof meta.viewerKey === "string" ? meta.viewerKey : undefined
+    const viewerAvailable = Boolean(meta.viewerAvailable)
+
+    if (!usedPromptApi && !fallbackUsed && !viewerKey) {
+      return null
+    }
+
+    return {
+      usedPromptApi,
+      fallbackUsed,
+      fallbackReason,
+      viewerKey,
+      viewerAvailable
+    }
+  }, [latestSuccess])
+
   const handleRunPreset = useCallback(
     (action: QuickAction) => {
       if (!action.presetId) {
@@ -192,25 +621,24 @@ function IndexPopup() {
         return
       }
 
-      const runOptions: TaskRunOptions = {}
-      if (action.initialInput !== undefined) {
-        runOptions.initialInput = action.initialInput
-      }
+      const baseOptions: TaskRunOptions =
+        action.initialInput !== undefined ? { initialInput: action.initialInput } : {}
 
-      manager.enqueue(
-        preset,
-        Object.keys(runOptions).length > 0 ? runOptions : undefined
-      )
+      const { runOptions, assignRunId } = createInstrumentedRunOptions(preset, baseOptions)
+      const runId = manager.enqueue(preset, runOptions)
+      assignRunId(runId)
     },
-    [manager]
+    [createInstrumentedRunOptions, manager]
   )
 
   const handleStorageTestSave = useCallback(() => {
     setStorageTestStatus("Queued storage test task…")
-    manager.enqueue(STORAGE_TEST_TASK, {
+    const { runOptions, assignRunId } = createInstrumentedRunOptions(STORAGE_TEST_TASK, {
       initialInput: STORAGE_TEST_SAMPLE
     })
-  }, [manager])
+    const runId = manager.enqueue(STORAGE_TEST_TASK, runOptions)
+    assignRunId(runId)
+  }, [createInstrumentedRunOptions, manager])
 
   const handleStorageTestInspect = useCallback(async () => {
     try {
@@ -322,6 +750,149 @@ function IndexPopup() {
         </div>
       </section>
 
+      <section className="space-y-3 rounded-2xl border bg-card/80 p-4 shadow-sm">
+        <div className="space-y-1">
+          <h2 className="text-sm font-semibold text-foreground">Workflow timeline</h2>
+          <p className="text-xs text-muted-foreground">
+            {debugMode
+              ? "Inspect each step's status, output, and metadata while debugging an automation run."
+              : "Track the status of each step as your automation runs."}
+          </p>
+        </div>
+
+        {runs.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {runs.slice(0, 4).map((run) => {
+              const statusMeta = RUN_STATUS_META[run.status]
+              const isSelected = run.id === selectedRunId
+              const runLabel = run.taskName ?? run.taskId ?? "Untitled run"
+              return (
+                <Button
+                  key={run.id}
+                  type="button"
+                  size="sm"
+                  variant={isSelected ? "secondary" : "ghost"}
+                  className={cn(
+                    "h-8 rounded-full px-3 text-xs",
+                    isSelected ? "ring-1 ring-primary" : undefined
+                  )}
+                  onClick={() => setSelectedRunId(run.id)}
+                >
+                  <span className="font-medium">{runLabel}</span>
+                  <span className={cn("ml-2 text-[10px] uppercase", statusMeta.className)}>
+                    {statusMeta.label}
+                  </span>
+                </Button>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Kick off an automation to populate the timeline.
+          </p>
+        )}
+
+        {selectedRun ? (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+              <span>Started {new Date(selectedRun.createdAt).toLocaleTimeString()}</span>
+              {selectedRun.status !== "running" ? (
+                <span>
+                  Status:{" "}
+                  <span className={cn("font-medium", RUN_STATUS_META[selectedRun.status].className)}>
+                    {RUN_STATUS_META[selectedRun.status].label}
+                  </span>
+                </span>
+              ) : null}
+              {selectedRun.finishedAt ? (
+                <span>
+                  Duration:{" "}
+                  {Math.max(
+                    0,
+                    selectedRun.finishedAt - (selectedRun.startedAt ?? selectedRun.createdAt)
+                  )}
+                  ms
+                </span>
+              ) : null}
+            </div>
+
+            <div className="space-y-2">
+              {selectedTimeline.length > 0 ? (
+                selectedTimeline.map((step) => {
+                  const statusMeta = STEP_STATUS_META[step.status]
+                  const Icon = statusMeta.icon
+                  const viewerKey =
+                    step.meta && typeof step.meta.viewerKey === "string"
+                      ? (step.meta.viewerKey as string)
+                      : undefined
+                  const showPreview = Boolean(step.outputPreview) && (debugMode || step.status === "failed")
+                  const showMetaDetails = debugMode && step.meta
+
+                  return (
+                    <div
+                      key={step.key}
+                      className="rounded-xl border border-border/70 bg-background/80 p-3"
+                    >
+                      <div className="flex items-start gap-3">
+                        <span className={cn("mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-muted/80", statusMeta.className)}>
+                          <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                        </span>
+                        <div className="flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-medium text-foreground">
+                              {step.description ?? `Step ${step.index + 1}`}
+                            </p>
+                            <span className={cn("text-[10px] uppercase", statusMeta.className)}>
+                              {statusMeta.label}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">
+                            {step.type}
+                          </p>
+                          {step.error ? (
+                            <p className="text-[11px] text-destructive">{step.error}</p>
+                          ) : null}
+                        </div>
+                        {viewerKey ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs"
+                            onClick={() => handleViewerOpen(viewerKey)}
+                          >
+                            View result
+                          </Button>
+                        ) : null}
+                      </div>
+
+                      {showPreview ? (
+                        <pre className="mt-2 max-h-32 overflow-auto rounded-md bg-muted/40 p-2 text-[11px] leading-snug text-muted-foreground">
+                          {step.outputPreview}
+                        </pre>
+                      ) : null}
+
+                      {showMetaDetails ? (
+                        <details className="mt-2 text-[11px]">
+                          <summary className="cursor-pointer text-muted-foreground/80">
+                            Debug details
+                          </summary>
+                          <pre className="mt-1 max-h-48 overflow-auto rounded bg-background/80 p-2 leading-snug text-muted-foreground">
+                            {JSON.stringify(step.meta, null, 2)}
+                          </pre>
+                        </details>
+                      ) : null}
+                    </div>
+                  )
+                })
+              ) : (
+                <p className="text-xs text-muted-foreground">Step progress will appear here once the run starts.</p>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </section>
+
       <section className="space-y-3 rounded-2xl border border-dashed border-muted/50 bg-card/70 p-4 shadow-sm">
         <div className="space-y-1">
           <h2 className="text-sm font-semibold text-foreground">Storage action debug</h2>
@@ -354,6 +925,9 @@ function IndexPopup() {
             <CardTitle className="text-sm">Latest run output</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
+            {successMessage ? (
+              <p className="text-xs font-medium text-primary">{successMessage}</p>
+            ) : null}
             {lastError ? (
               <p className="text-xs text-destructive">{lastError}</p>
             ) : null}
@@ -392,6 +966,11 @@ function IndexPopup() {
                 ) : null}
               </div>
             ) : null}
+          {promptDiagnostics?.fallbackUsed ? (
+            <p className="text-[11px] text-amber-600">
+              Prompt API fallback triggered{promptDiagnostics.fallbackReason ? ` (${promptDiagnostics.fallbackReason})` : ""}
+            </p>
+          ) : null}
             {lastOutput ? (
               <pre className="max-h-48 overflow-auto rounded-lg bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground">
                 {lastOutput}

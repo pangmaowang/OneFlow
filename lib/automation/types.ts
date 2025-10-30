@@ -46,6 +46,12 @@ export type StructuredPromptConfig = {
   systemPrompt?: string
   /** Preferred language tag (BCP-47) for the model output. Defaults to English. */
   outputLanguage?: string
+  /** When true, returns the rendered template if the Prompt API is unavailable or fails. */
+  fallbackToTemplate?: boolean
+  /** Attempts to parse the model response as JSON before returning. Defaults to true when a schema is supplied. */
+  coerceJsonOutput?: boolean
+  /** Automatically opens the viewer tab after stashing the result. Disabled by default. */
+  autoOpenViewer?: boolean
 }
 
 export type StoreArtifactConfig = {

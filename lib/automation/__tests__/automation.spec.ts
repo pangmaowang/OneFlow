@@ -24,22 +24,73 @@ describe("automation pipeline", () => {
   })
 
   it("runs the daily recap task end-to-end", async () => {
-    const result = await runTask(dailyDeveloperRecap, {
-      context: {
-        pageContent:
-          "Wrapped the OAuth migration today. Blockers resolved. Tomorrow we finish rollout.",
-      },
-    })
+    const originalAi = (globalThis as Record<string, unknown>).ai
+    const recapPayload = {
+      summary: "Shipped OAuth migration fixes and aligned on tomorrow's rollout.",
+      highlights: ["Resolved long-standing OAuth migration blockers"],
+      blockers: [],
+      nextFocus: ["Monitor production rollout"],
+      actionItems: ["Draft post-release QA checklist"]
+    }
 
-    expect(result.success).toBe(true)
-    expect(typeof result.output).toBe("string")
-    expect(result.output).toContain("Daily standup recap")
+    ;(globalThis as Record<string, unknown>).ai = {
+      languageModel: {
+        async availability() {
+          return "available"
+        },
+        async create() {
+          return {
+            async prompt(payload: unknown) {
+              expect(payload).toBeDefined()
+              return JSON.stringify(recapPayload)
+            },
+            destroy() {
+              /* noop */
+            }
+          }
+        }
+      }
+    }
 
-    const readStep = result.steps.find((entry) => entry.step.type === "read-page")
-    const meta =
-      (readStep?.result.meta as { truncated?: unknown; fromContext?: unknown } | undefined) ?? {}
-    expect(meta.truncated).toBe(false)
-    expect(meta.fromContext).toBe(true)
+    try {
+      const result = await runTask(dailyDeveloperRecap, {
+        context: {
+          pageContent:
+            "Wrapped the OAuth migration today. Blockers resolved. Tomorrow we finish rollout."
+        }
+      })
+
+      expect(result.success).toBe(true)
+      expect(result.output).toBeTruthy()
+
+      const artifact = result.output as {
+        type: string
+        payload: { parsed?: unknown }
+      }
+
+      expect(artifact.type).toBe("daily-dev-recap")
+      expect(artifact.payload.parsed).toMatchObject(recapPayload)
+
+      const readStep = result.steps.find((entry) => entry.step.type === "read-page")
+      const readMeta =
+        (readStep?.result.meta as { truncated?: unknown; fromContext?: unknown } | undefined) ?? {}
+      expect(readMeta.truncated).toBe(false)
+      expect(readMeta.fromContext).toBe(true)
+
+      const promptStep = result.steps.find((entry) => entry.step.type === "structured-prompt")
+      const promptMeta = (promptStep?.result.meta ?? {}) as Record<string, unknown>
+      expect(promptMeta.usedPromptApi).toBe(true)
+
+      const [stored] = await listArtifacts({ type: "daily-dev-recap", limit: 1 })
+      expect(stored).toBeDefined()
+      expect(stored?.payload.parsed).toMatchObject(recapPayload)
+    } finally {
+      if (originalAi === undefined) {
+        delete (globalThis as Record<string, unknown>).ai
+      } else {
+        (globalThis as Record<string, unknown>).ai = originalAi
+      }
+    }
   })
 
   it("falls back to default content and truncates when configured", async () => {
@@ -96,6 +147,103 @@ describe("automation pipeline", () => {
     expect(result.output).toContain("Breaking News")
     expect(result.output).toContain("The build is green and shipping today.")
     expect(result.output).not.toContain("evil")
+  })
+})
+
+describe("structured-prompt normalization", () => {
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>).ai
+  })
+
+  it("normalizes structured fields based on schema and heuristics", async () => {
+    const action = requireAction("structured-prompt")
+
+    const messyResponse = JSON.stringify({
+      summary: ["Wrapped auth", "Need sign-off"],
+      highlights: [
+        "• Shipped async retries",
+        { text: "Coordinated rollout" },
+        "Shipped async retries"
+      ],
+      blockers: "1. QA pending\n- Approvals missing",
+      nextFocus: [["Ship release"], { title: "Prep docs" }, "Ship release"],
+      actionItems: [
+        { label: "Review PR" },
+        "• Review PR",
+        { description: "Sync with QA" }
+      ]
+    })
+
+    ;(globalThis as Record<string, unknown>).ai = {
+      languageModel: {
+        async availability() {
+          return "available"
+        },
+        async create() {
+          return {
+            async prompt() {
+              return messyResponse
+            },
+            destroy() {
+              /* noop */
+            }
+          }
+        }
+      }
+    }
+
+    const result = await action.run({
+      step: {
+        type: "structured-prompt",
+        config: {
+          template: "{{input}}",
+          schema: {
+            type: "object",
+            properties: {
+              summary: { type: "string" },
+              highlights: { type: "array", items: { type: "string" } },
+              blockers: { type: "array", items: { type: "string" } },
+              nextFocus: { type: "array", items: { type: "string" } },
+              actionItems: { type: "array", items: { type: "string" } }
+            },
+            required: ["summary"],
+            additionalProperties: true
+          },
+          usePromptApi: true,
+          coerceJsonOutput: true
+        }
+      },
+      input: {
+        notes: "Wrapped auth migration"
+      },
+      context: {},
+      cache: new Map()
+    })
+
+    expect(result.success).toBe(true)
+
+    const output = result.output as Record<string, unknown>
+    expect(typeof output.summary).toBe("string")
+    expect(output.summary).toBe("Wrapped auth\nNeed sign-off")
+
+    expect(Array.isArray(output.highlights)).toBe(true)
+    expect(output.highlights).toEqual(["Shipped async retries", "Coordinated rollout"])
+
+    expect(Array.isArray(output.blockers)).toBe(true)
+    expect(output.blockers).toEqual(["QA pending", "Approvals missing"])
+
+    expect(Array.isArray(output.nextFocus)).toBe(true)
+    expect(output.nextFocus).toEqual(["Ship release", "Prep docs"])
+
+    expect(Array.isArray(output.actionItems)).toBe(true)
+    expect(output.actionItems).toEqual(["Review PR", "Sync with QA"])
+
+    const meta = result.meta as Record<string, unknown>
+    expect(Array.isArray(meta?.normalizedFields)).toBe(true)
+    expect(new Set(meta?.normalizedFields as string[])).toEqual(
+      new Set(["highlights", "blockers", "nextFocus", "actionItems", "summary"])
+    )
+    expect(meta?.parsedSource).toBe("normalized")
   })
 })
 
