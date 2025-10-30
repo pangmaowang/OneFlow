@@ -756,9 +756,6 @@ function IndexPopup() {
                               {statusMeta.label}
                             </span>
                           </div>
-                          <p className="text-[11px] text-muted-foreground">
-                            {step.type}
-                          </p>
                           {step.error ? (
                             <p className="text-[11px] text-destructive">{step.error}</p>
                           ) : null}

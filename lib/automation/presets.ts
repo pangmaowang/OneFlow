@@ -2,8 +2,8 @@ import type { TaskDefinition } from "./types"
 
 export const dailyDeveloperRecap: TaskDefinition = {
   id: "daily-dev",
-  name: "Daily victory lap",
-  description: "Capture today’s highlights, worries, and next moves without drafting another status note.",
+  name: "Daily dev debrief",
+  description: "Digest the ticket, capture what matters, and spin it into a shine-worthy update.",
   steps: [
     {
       id: "pageContent",
@@ -19,7 +19,7 @@ export const dailyDeveloperRecap: TaskDefinition = {
     {
       id: "recapAnalysis",
       type: "structured-prompt",
-      description: "Process the captured content with the Prompt API",
+      description: "Process the content with AI",
       config: {
         template:
           "Format version: {{formatVersion}}\nYou are preparing a JSON summary for an engineering daily update. Rely only on the supplied notes. The response MUST be valid JSON with no Markdown, code fences, or commentary. Keep entries concise and avoid duplicate bullet points.\n\nSchema fields:\n- summary: string\n- highlights: array of string (max 5)\n- blockers: array of string (max 3, return [] when none)\n- nextFocus: array of string (max 3)\n- actionItems: array of string (max 5)\n- draftPullRequest: object\n  * title: string\n  * content: string (multi-line body permitted)\n  * potentialRegressions: array of string (max 5, use [] when none)\n  * blastRadius: string (note the impacted areas)\n\nRules:\n1. Only emit the JSON object defined by the schema.\n2. Trim whitespace, remove bullet prefixes, and avoid numbering.\n3. Use [] for empty lists and an empty string for text fields when content is missing.\n4. Keep draftPullRequest factual, scoped to the supplied work, and avoid repeating earlier bullet points.\n\nNotes:\n{{input}}",
@@ -114,7 +114,7 @@ export const weeklySummaryReport: TaskDefinition = {
     {
       id: "weeklySynthesis",
       type: "structured-prompt",
-      description: "Synthesize the weekly engineering report with the Prompt API.",
+      description: "Synthesize the weekly report with AI.",
       config: {
         template:
           "You are preparing a weekly engineering status report for leadership. Summarize meaningful impact while referencing concrete details. Base your response solely on the collected daily recaps provided below. The output must be strictly valid JSON and adhere exactly to the schema. Keep each bullet punchy (under 160 characters) and avoid repetition.\n\nSchema fields:\n- summary: string\n- highlights: array of string (max 8)\n- blockers: array of string (max 5)\n- nextFocus: array of string (max 5)\n- actionItems: array of string (max 6)\n- dailyBreakdown: array of object summarizing each day\n  * date: string (human readable day label)\n  * summary: string\n  * highlights: array of string (max 5)\n  * blockers: array of string (max 5)\n  * nextFocus: array of string (max 5)\n  * actionItems: array of string (max 5)\n\nRules:\n1. Emit only the JSON object defined by the schema.\n2. Do not invent work; omit sections when there is no signal (use [] for empty lists).\n3. When citing daily details, weave them into the highlights or dailyBreakdown entries.\n\nCollected recaps:\n{{input}}",

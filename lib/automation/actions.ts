@@ -823,6 +823,15 @@ function normalizeStructuredOutput(
     working[key] = coerced
   }
 
+  if (Object.prototype.hasOwnProperty.call(working, "draftPullRequest")) {
+    const draft = normalizeDraftPullRequest(working.draftPullRequest)
+    if (draft.changed) {
+      changed = true
+      draft.modifiedFields.forEach((field) => modified.add(field))
+    }
+    working.draftPullRequest = draft.value
+  }
+
   if (!changed) {
     return { value, changed: false, modifiedFields: [] }
   }
@@ -1006,6 +1015,95 @@ function arraysShallowEqual(source: unknown, target: string[]) {
   }
 
   return true
+}
+
+type NormalizedDraft = {
+  value: {
+    title: string
+    content: string
+    potentialRegressions: string[]
+    blastRadius: string
+  }
+  changed: boolean
+  modifiedFields: string[]
+}
+
+function normalizeDraftPullRequest(value: unknown): NormalizedDraft {
+  const allowedKeys = new Set(["title", "content", "potentialRegressions", "blastRadius"])
+  const result: NormalizedDraft = {
+    value: {
+      title: "",
+      content: "",
+      potentialRegressions: [],
+      blastRadius: ""
+    },
+    changed: false,
+    modifiedFields: []
+  }
+
+  if (!isPlainRecord(value)) {
+    result.changed = true
+    result.modifiedFields.push("draftPullRequest")
+    return result
+  }
+
+  const working: Record<string, unknown> = { ...value }
+
+  for (const key of Object.keys(working)) {
+    if (!allowedKeys.has(key)) {
+      delete working[key]
+      result.changed = true
+      result.modifiedFields.push(`draftPullRequest.${key}`)
+    }
+  }
+
+  const title = coerceStringField(working.title)
+  if (title.changed || title.value !== working.title) {
+    result.changed = true
+    result.modifiedFields.push("draftPullRequest.title")
+  }
+  result.value.title = title.value
+
+  const content = coerceStringField(working.content)
+  if (content.changed || content.value !== working.content) {
+    result.changed = true
+    result.modifiedFields.push("draftPullRequest.content")
+  }
+  result.value.content = content.value
+
+  const regressions = coerceStringArrayField(working.potentialRegressions)
+  let normalizedRegressions = regressions.value
+  if (normalizedRegressions.length > 5) {
+    normalizedRegressions = normalizedRegressions.slice(0, 5)
+  }
+  if (regressions.changed || !arraysShallowEqual(working.potentialRegressions, normalizedRegressions)) {
+    result.changed = true
+    result.modifiedFields.push("draftPullRequest.potentialRegressions")
+  }
+  result.value.potentialRegressions = normalizedRegressions
+
+  const blastRadius = coerceStringField(working.blastRadius)
+  if (blastRadius.changed || blastRadius.value !== working.blastRadius) {
+    result.changed = true
+    result.modifiedFields.push("draftPullRequest.blastRadius")
+  }
+  result.value.blastRadius = blastRadius.value
+
+  if (!result.changed) {
+    return {
+      value: {
+        title: title.value,
+        content: content.value,
+        potentialRegressions: normalizedRegressions,
+        blastRadius: blastRadius.value
+      },
+      changed: false,
+      modifiedFields: []
+    }
+  }
+
+  result.modifiedFields = Array.from(new Set(result.modifiedFields))
+  return result
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

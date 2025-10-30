@@ -1,33 +1,62 @@
-This is a [Plasmo extension](https://docs.plasmo.com/) project bootstrapped with [`plasmo init`](https://www.npmjs.com/package/plasmo).
+![Auto Boring robot](assets/icon.png)
 
-## Getting Started
+# Auto Boring
 
-First, run the development server:
+Auto Boring turns the dreaded “status update” into a one-click performance. Point it at your work-in-progress tab, tap a quick action, and let the extension collect context, reason with Chrome’s Prompt API, and file a polished update that makes you look effortlessly on top of things.
+
+## Highlights
+
+- **Daily dev debrief** – Understand the ticket, capture what matters, and spin it into a shine-worthy async update (draft PR copy included).
+- **Weekly highlight reel** – Roll seven days of recaps into a leadership-ready briefing without rereading a single doc.
+- **Automation timeline** – Watch each action report in as the workflow runs, with optional debug crumb trails for deep dives.
+- **Result stash & viewer** – Every run is archived, searchable, and viewable in a dedicated tab complete with Markdown export.
+
+## How to Run It
 
 ```bash
+pnpm install
 pnpm dev
-# or
-npm run dev
 ```
 
-Open your browser and load the appropriate development build. For example, if you are developing for the chrome browser, using manifest v3, use: `build/chrome-mv3-dev`.
+Then load `build/chrome-mv3-dev` as an unpacked extension in Chrome. The popup hot-reloads while `pnpm dev` is running.
 
-You can start editing the popup by modifying `popup.tsx`. It should auto-update as you make changes. To add an options page, simply add a `options.tsx` file to the root of the project, with a react component default exported. Likewise to add a content page, add a `content.ts` file to the root of the project, importing some module and do some logic, then reload the extension on your browser.
+### Debug Mode
 
-For further guidance, [visit our Documentation](https://docs.plasmo.com/)
+- `pnpm run dev:debug` flips on verbose traces and richer timeline metadata.
+- In the popup console, run `window.__AUTO_BORING_DEBUG__ = true` to toggle debug mode at runtime.
 
-## Making production build
+## Automated Workflows
 
-Run the following:
+1. **Daily dev debrief** (`daily-dev`)
+	- Reads the active tab (or uses sample notes) and normalizes the content.
+	- Generates JSON structured insights (summary, highlights, blockers, next focus, action items).
+	- Drafts pull request copy: title, body, potential regressions, and blast radius.
+	- Persists the recap for later rollups.
+2. **Weekly highlight reel** (`weekly-summary`)
+	- Collects recent daily recaps from storage.
+	- Synthesizes an exec-friendly weekly brief with per-day breakdowns.
+	- Stashes the result so you can download or share it on demand.
+
+## Testing & Quality Gates
+
+```bash
+pnpm test
+```
+
+The Vitest suite exercises end-to-end workflow execution, action fallbacks, structured prompt normalization (including the pull-request draft helper), storage persistence, and workflow-manager queueing.
+
+## Production Builds
 
 ```bash
 pnpm build
-# or
-npm run build
 ```
 
-This should create a production bundle for your extension, ready to be zipped and published to the stores.
+This emits ready-to-zip bundles under `build/`. Pair it with Plasmo’s packaging workflow (`pnpm package`) when you’re ready to ship.
 
-## Submit to the webstores
+## Contributing Tips
 
-The easiest way to deploy your Plasmo extension is to use the built-in [bpp](https://bpp.browser.market) GitHub action. Prior to using this action however, make sure to build your extension and upload the first version to the store to establish the basic credentials. Then, simply follow [this setup instruction](https://docs.plasmo.com/framework/workflows/submit) and you should be on your way for automated submission!
+- Keep new actions focused: return `{ success, output, meta }` and stash viewer-ready data when possible.
+- Update `lib/automation/presets.ts` and `popup.tsx` together so the UI copy always matches the underlying workflow.
+- Extend the Vitest suite alongside new automation logic—tests run fast enough for every PR.
+
+Now go automate the boring parts so the fun work can actually be fun.

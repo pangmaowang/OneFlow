@@ -30,7 +30,13 @@ describe("automation pipeline", () => {
       highlights: ["Resolved long-standing OAuth migration blockers"],
       blockers: [],
       nextFocus: ["Monitor production rollout"],
-      actionItems: ["Draft post-release QA checklist"]
+      actionItems: ["Draft post-release QA checklist"],
+      draftPullRequest: {
+        title: "OAuth migration polish",
+        content: "## Summary\n- Hardened refresh token flow\n- Added smoke tests",
+        potentialRegressions: ["OAuth login flows"],
+        blastRadius: "Auth service, session refresh"
+      }
     }
 
     ;(globalThis as Record<string, unknown>).ai = {
@@ -69,7 +75,9 @@ describe("automation pipeline", () => {
       }
 
       expect(artifact.type).toBe("daily-dev-recap")
-      expect(artifact.payload.parsed).toMatchObject(recapPayload)
+  const parsedArtifact = artifact.payload.parsed as typeof recapPayload
+  expect(parsedArtifact).toMatchObject(recapPayload)
+  expect(parsedArtifact.draftPullRequest).toMatchObject(recapPayload.draftPullRequest)
 
       const readStep = result.steps.find((entry) => entry.step.type === "read-page")
       const readMeta =
@@ -83,7 +91,9 @@ describe("automation pipeline", () => {
 
       const [stored] = await listArtifacts({ type: "daily-dev-recap", limit: 1 })
       expect(stored).toBeDefined()
-      expect(stored?.payload.parsed).toMatchObject(recapPayload)
+  const storedParsed = stored?.payload.parsed as typeof recapPayload | undefined
+  expect(storedParsed).toBeDefined()
+  expect(storedParsed!).toMatchObject(recapPayload)
     } finally {
       if (originalAi === undefined) {
         delete (globalThis as Record<string, unknown>).ai
@@ -171,7 +181,18 @@ describe("structured-prompt normalization", () => {
         { label: "Review PR" },
         "• Review PR",
         { description: "Sync with QA" }
-      ]
+      ],
+      draftPullRequest: {
+        title: ["  Auth rollout   "],
+        content: ["Cleaned up auth flows", { text: "Need release notes" }],
+        potentialRegressions: [
+          "• Login",
+          { text: "Session expiry" },
+          "Login"
+        ],
+        blastRadius: { text: "Auth service + session cache" },
+        extraField: "should disappear"
+      }
     })
 
     ;(globalThis as Record<string, unknown>).ai = {
@@ -238,10 +259,35 @@ describe("structured-prompt normalization", () => {
     expect(Array.isArray(output.actionItems)).toBe(true)
     expect(output.actionItems).toEqual(["Review PR", "Sync with QA"])
 
+    const draft = output.draftPullRequest as {
+      title: string
+      content: string
+      potentialRegressions: string[]
+      blastRadius: string
+    }
+
+    expect(draft).toEqual({
+      title: "Auth rollout",
+      content: "Cleaned up auth flows\nNeed release notes",
+      potentialRegressions: ["Login", "Session expiry"],
+      blastRadius: "Auth service + session cache"
+    })
+
     const meta = result.meta as Record<string, unknown>
     expect(Array.isArray(meta?.normalizedFields)).toBe(true)
     expect(new Set(meta?.normalizedFields as string[])).toEqual(
-      new Set(["highlights", "blockers", "nextFocus", "actionItems", "summary"])
+      new Set([
+        "highlights",
+        "blockers",
+        "nextFocus",
+        "actionItems",
+        "summary",
+        "draftPullRequest.title",
+        "draftPullRequest.content",
+        "draftPullRequest.potentialRegressions",
+        "draftPullRequest.blastRadius",
+        "draftPullRequest.extraField"
+      ])
     )
     expect(meta?.parsedSource).toBe("normalized")
   })
