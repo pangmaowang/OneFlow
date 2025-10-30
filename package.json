@@ -1,9 +1,9 @@
 {
-  "name": "auto-boring",
-  "displayName": "Auto boring",
+  "name": "oneflow",
+  "displayName": "OneFlow",
   "version": "0.0.1",
-  "description": "google chrome ai hackaton project, automate daily boring stuff in dev",
-  "author": "Pang er ",
+  "description": "Automate your workflow from tasks to content to progress - all in one click. Spark productivity across your day.",
+  "author": "Osito Wang",
   "scripts": {
     "dev": "plasmo dev",
     "dev:debug": "PLASMO_PUBLIC_AUTOMATION_DEBUG=true plasmo dev",
@@ -41,10 +41,6 @@
       "activeTab",
       "tabs",
       "storage"
-    ],
-    "host_permissions": [
-      "http://*/*",
-      "https://*/*"
     ]
   }
 }

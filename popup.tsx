@@ -589,8 +589,8 @@ function IndexPopup() {
             <Bot className="h-5 w-5 text-primary-foreground" />
           </span>
           <div className="space-y-0.5">
-            <p className="text-sm font-semibold">Auto Boring</p>
-            <p className="text-xs text-muted-foreground">Automating the chores your boss loves and you don&apos;t.</p>
+            <p className="text-sm font-semibold">OneFlow</p>
+            <p className="text-xs text-muted-foreground">Automate tasks, content, and progress in a single click.</p>
           </div>
         </div>
         <TaskIndicator

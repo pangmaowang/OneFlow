@@ -1,4 +1,4 @@
-# Auto Boring Architecture Notes
+# OneFlow Architecture Notes
 
 ## Overview
 - MV3 browser extension powered by Plasmo with a React popup front-end.

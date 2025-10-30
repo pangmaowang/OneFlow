@@ -1,4 +1,4 @@
-# Auto Boring Copilot Guide
+# OneFlow Copilot Guide
 
 ## Big Picture
 - Shipping a Plasmo MV3 browser extension with a React popup (`popup.tsx`) and Tailwind styling (`style.css`).

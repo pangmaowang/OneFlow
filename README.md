@@ -1,13 +1,14 @@
-![Auto Boring robot](assets/icon.png)
+![OneFlow icon](assets/icon.png)
 
-# Auto Boring
+# OneFlow
 
-Auto Boring turns the dreaded “status update” into a one-click performance. Point it at your work-in-progress tab, tap a quick action, and let the extension collect context, reason with Chrome’s Prompt API, and file a polished update that makes you look effortlessly on top of things.
+OneFlow turns the dreaded “status update” into a one-click performance—and it is ready to grow into blog automation, custom flows, and whatever repetitive storytelling you want to retire. Point it at your work-in-progress tab, tap a quick action, and let the extension collect context, reason with Chrome’s Prompt API, and file a polished update that makes you look effortlessly on top of things.
 
 ## Highlights
 
 - **Daily dev debrief** – Understand the ticket, capture what matters, and spin it into a shine-worthy async update (draft PR copy included).
 - **Weekly highlight reel** – Roll seven days of recaps into a leadership-ready briefing without rereading a single doc.
+- **Future-ready workflows** – The same automation engine can power blog posts, changelog blurbs, or bespoke multi-step flows as you extend the presets.
 - **Automation timeline** – Watch each action report in as the workflow runs, with optional debug crumb trails for deep dives.
 - **Result stash & viewer** – Every run is archived, searchable, and viewable in a dedicated tab complete with Markdown export.
 
