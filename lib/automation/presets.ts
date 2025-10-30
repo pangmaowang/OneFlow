@@ -22,7 +22,7 @@ export const dailyDeveloperRecap: TaskDefinition = {
       description: "Process the captured content with the Prompt API",
       config: {
         template:
-          "Format version: {{formatVersion}}\nYou are preparing a JSON summary for an engineering daily update. Rely only on the supplied notes. The response MUST be valid JSON with no Markdown, code fences, or commentary. Keep entries concise and avoid duplicate bullet points.\n\nSchema fields:\n- summary: string\n- highlights: array of string (max 5)\n- blockers: array of string (max 3, return [] when none)\n- nextFocus: array of string (max 3)\n- actionItems: array of string (max 5)\n\nRules:\n1. Only emit the JSON object defined by the schema.\n2. Trim whitespace, remove bullet prefixes, and avoid numbering.\n3. Use [] for empty lists and an empty string for summary when content is missing.\n\nNotes:\n{{input}}",
+          "Format version: {{formatVersion}}\nYou are preparing a JSON summary for an engineering daily update. Rely only on the supplied notes. The response MUST be valid JSON with no Markdown, code fences, or commentary. Keep entries concise and avoid duplicate bullet points.\n\nSchema fields:\n- summary: string\n- highlights: array of string (max 5)\n- blockers: array of string (max 3, return [] when none)\n- nextFocus: array of string (max 3)\n- actionItems: array of string (max 5)\n- draftPullRequest: object\n  * title: string\n  * content: string (multi-line body permitted)\n  * potentialRegressions: array of string (max 5, use [] when none)\n  * blastRadius: string (note the impacted areas)\n\nRules:\n1. Only emit the JSON object defined by the schema.\n2. Trim whitespace, remove bullet prefixes, and avoid numbering.\n3. Use [] for empty lists and an empty string for text fields when content is missing.\n4. Keep draftPullRequest factual, scoped to the supplied work, and avoid repeating earlier bullet points.\n\nNotes:\n{{input}}",
         variables: {
           formatVersion: "v1"
         },
@@ -49,9 +49,24 @@ export const dailyDeveloperRecap: TaskDefinition = {
               type: "array",
               items: { type: "string" },
               maxItems: 5
+            },
+            draftPullRequest: {
+              type: "object",
+              properties: {
+                title: { type: "string" },
+                content: { type: "string" },
+                potentialRegressions: {
+                  type: "array",
+                  items: { type: "string" },
+                  maxItems: 5
+                },
+                blastRadius: { type: "string" }
+              },
+              required: ["title", "content"],
+              additionalProperties: false
             }
           },
-          required: ["summary", "highlights", "nextFocus"],
+          required: ["summary", "highlights", "nextFocus", "draftPullRequest"],
           additionalProperties: false
         },
         systemPrompt:
