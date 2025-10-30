@@ -22,15 +22,6 @@ export type ReadPageConfig = {
   fallback?: string
 }
 
-export type SummarizeConfig = {
-  /** Maximum number of sentences to include. */
-  maxSentences?: number
-  /** Target reduction ratio (0-1) used when sentence count is unavailable. */
-  compressionRatio?: number
-  /** Whether to return bullet points instead of a paragraph summary. */
-  format?: "paragraph" | "bullets"
-}
-
 export type CollectWeeklySummaryConfig = {
   /** Number of days to look back when collecting daily recaps. Defaults to 7. */
   days?: number
@@ -78,14 +69,12 @@ export type StoreArtifactConfig = {
 
 export type ActionType =
   | "read-page"
-  | "summarize-text"
   | "structured-prompt"
   | "store-artifact"
   | "collect-weekly-summary"
 
 export interface ActionTypeConfigMap {
   "read-page": ReadPageConfig
-  "summarize-text": SummarizeConfig
   "structured-prompt": StructuredPromptConfig
   "store-artifact": StoreArtifactConfig
   "collect-weekly-summary": CollectWeeklySummaryConfig

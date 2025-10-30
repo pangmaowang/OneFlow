@@ -15,8 +15,7 @@ import type {
   ActionType,
   ReadPageConfig,
   RegisteredAction,
-  StructuredPromptConfig,
-  SummarizeConfig
+  StructuredPromptConfig
 } from "./types"
 import {
   appendDebugTrace,
@@ -66,12 +65,6 @@ registerAction("read-page", {
   name: "Read page",
   description: "Collect content from the active page or provided source",
   run: readPageAction
-})
-
-registerAction("summarize-text", {
-  name: "Summarize text",
-  description: "Condense textual input into key bullet points",
-  run: summarizeTextAction
 })
 
 registerAction("collect-weekly-summary", {
@@ -217,49 +210,6 @@ async function readPageAction({ step, context }: ActionExecutionArgs<"read-page"
       length: trimmed.length,
       truncated: wasTruncated,
       ...(debugTrace ? { debug: debugTrace } : {})
-    }
-  }
-}
-
-function summarizeTextAction({ input, step }: ActionExecutionArgs<"summarize-text">) {
-  const config: SummarizeConfig = {
-    maxSentences: step.config?.maxSentences,
-    compressionRatio: step.config?.compressionRatio,
-    format: step.config?.format
-  }
-
-  if (!input || typeof input !== "string") {
-    return {
-      success: false,
-      error: new Error("summarize-text expects a string input")
-    }
-  }
-
-  const sentences = input
-    .replace(/\s+/g, " ")
-    .split(/(?<=[.!?])\s+/)
-    .filter(Boolean)
-
-  const dynamicMax =
-    config.compressionRatio && config.compressionRatio > 0 && config.compressionRatio < 1
-      ? Math.max(1, Math.round(sentences.length * config.compressionRatio))
-      : undefined
-
-  const maxSentences = config.maxSentences ?? dynamicMax ?? 2
-  const selected = sentences.slice(0, maxSentences)
-  const summary = selected.join(" ") || input.slice(0, 280)
-
-  const output =
-    config.format === "bullets"
-      ? selected.map((sentence) => `• ${sentence.trim()}`).join("\n")
-      : summary.trim()
-
-  return {
-    success: true,
-    output,
-    meta: {
-      originalSentenceCount: sentences.length,
-      returnedSentenceCount: Math.min(sentences.length, maxSentences)
     }
   }
 }

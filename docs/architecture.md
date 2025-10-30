@@ -38,7 +38,7 @@ flowchart LR
 
 ## Implemented Features
 - Popup quick actions to trigger workflows and show latest run metadata.
-- `read-page`, `summarize-text`, and `structured-prompt` actions with configurable behavior.
+- `read-page`, `structured-prompt`, and `collect-weekly-summary` actions with configurable behavior.
 - Workflow management with cancellation, sequential execution, and Vitest coverage for core flows.
 - Content sanitization helpers (`normalizeExtractedText`, `sanitizeHtmlFragment`, formatters) to produce prompt-friendly text.
 
