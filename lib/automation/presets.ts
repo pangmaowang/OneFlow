@@ -81,82 +81,6 @@ export const dailyDeveloperRecap: TaskDefinition = {
   ]
 }
 
-export const captureActivePage: TaskDefinition = {
-  id: "page-capture",
-  name: "Capture active page",
-  description: "Extract and format the readable content from the current tab.",
-  steps: [
-    {
-      id: "activePage",
-      type: "read-page",
-      description: "Clean up the current page content",
-      config: {
-        source: "active-tab",
-        maxLength: 4000
-      }
-    }
-  ]
-}
-
-export const promptApiDemo: TaskDefinition = {
-  id: "prompt-api-demo",
-  name: "Prompt API demo",
-  description: "Call the Chrome Prompt API and return structured JSON output.",
-  steps: [
-    {
-      id: "promptResult",
-      type: "structured-prompt",
-      description: "Invoke Gemini Nano with a JSON schema constraint.",
-      config: {
-        template:
-          "You are helping a developer understand an imprecise ticket. Based on the ticket text below, produce structured guidance that fits the provided schema. Ticket:\n\n{{input}}",
-        systemPrompt:
-          "You are a senior engineer. Provide grounded, factual guidance without fabricating details that are not present in the ticket.",
-        schema: {
-          type: "object",
-          properties: {
-            summary: { type: "string" },
-            suggestedClarifications: {
-              type: "array",
-              items: { type: "string" },
-              minItems: 0,
-              maxItems: 4
-            },
-            riskLevel: {
-              type: "string",
-              enum: ["low", "medium", "high"]
-            },
-            testPlan: {
-              type: "array",
-              items: { type: "string" },
-              minItems: 1,
-              maxItems: 5
-            }
-          },
-          required: ["summary", "riskLevel", "testPlan"],
-          additionalProperties: false
-        },
-        outputFormat: "json",
-        outputLanguage: "en",
-        usePromptApi: true
-      }
-    },
-    {
-      id: "persistPromptResult",
-      type: "store-artifact",
-      description: "Persist the structured prompt output for historical reporting.",
-      config: {
-        artifactType: "prompt-result",
-        metadata: {
-          sourceTask: "prompt-api-demo"
-        },
-        tags: ["prompt-api", "automation"],
-        skipWhenEmpty: true
-      }
-    }
-  ]
-}
-
 export const weeklySummaryReport: TaskDefinition = {
   id: "weekly-summary",
   name: "Weekly summary report",
@@ -267,11 +191,9 @@ export const weeklySummaryReport: TaskDefinition = {
   ]
 }
 
-export type PresetId = "daily-dev" | "page-capture" | "prompt-api-demo" | "weekly-summary"
+export type PresetId = "daily-dev" | "weekly-summary"
 
 export const PRESET_REGISTRY: Record<PresetId, TaskDefinition> = {
   "daily-dev": dailyDeveloperRecap,
-  "page-capture": captureActivePage,
-  "prompt-api-demo": promptApiDemo,
   "weekly-summary": weeklySummaryReport
 }

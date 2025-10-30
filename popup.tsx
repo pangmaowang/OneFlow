@@ -13,17 +13,14 @@ import {
   type TaskRunOptions,
   type WorkflowRunRecord
 } from "@/lib/automation"
-import { listArtifacts } from "@/lib/storage"
 import { openStashedAutomationResult } from "@/lib/viewer"
 import { cn } from "@/lib/utils"
 import {
   ArrowRight,
-  BookOpen,
   Bot,
   CalendarRange,
   CheckCircle2,
   Clock3,
-  Cpu,
   Loader2,
   PlusCircle,
   Sparkles,
@@ -238,19 +235,11 @@ function summarizeStepMeta(meta: unknown, debugMode: boolean): Record<string, un
 
 const QUICK_ACTIONS: QuickAction[] = [
   {
-    label: "Capture this page",
-    description: "Clean up the active tab and preview the extracted text.",
-    icon: BookOpen,
-    className: "border-primary/30 bg-primary/10 text-primary shadow-sm hover:bg-primary/15",
-    iconClassName: "text-primary",
-    presetId: "page-capture"
-  },
-  {
     label: "Daily dev recap",
     description: "Summarize commits, blockers, and upcoming priorities in seconds.",
-    icon: Cpu,
-    className: "hover:border-primary/40 hover:bg-primary/10",
-    iconClassName: "text-primary",
+    icon: Sparkles,
+    className: "hover:border-purple-300/70 hover:bg-purple-200/20",
+    iconClassName: "text-purple-500",
     presetId: "daily-dev"
   },
   {
@@ -268,62 +257,14 @@ const QUICK_ACTIONS: QuickAction[] = [
     className:
       "border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary/40 hover:text-primary",
     iconClassName: "text-muted-foreground"
-  },
-  {
-    label: "Prompt API demo",
-    description: "Call Gemini Nano via the Prompt API and inspect the JSON output.",
-    icon: Sparkles,
-    className: "hover:border-purple-300/70 hover:bg-purple-200/20",
-    iconClassName: "text-purple-500",
-    presetId: "prompt-api-demo",
-    initialInput: `Ticket: "Payment webhook retries"\nContext: Partial migration to v2 queue. QA noticed duplicate refund emails on retries. ACs mention graceful back-off and idempotent updates but do not call out legacy cron job that may still fire. Logs: shard-3 reports occasional 409 conflict when retry > 3 attempts.\nRequested by: Growth ops. Deadline: end of week.`
   }
 ]
-
-const STORAGE_TEST_TASK: TaskDefinition = {
-  id: "storage-test",
-  name: "Storage action test",
-  steps: [
-    {
-      id: "persistSampleResult",
-      type: "store-artifact",
-      description: "Persist a sample prompt output for debugging.",
-      config: {
-        artifactType: "prompt-result",
-        metadata: {
-          source: "popup-debug"
-        },
-        tags: ["debug", "popup"],
-        skipWhenEmpty: true
-      }
-    }
-  ]
-}
-
-const STORAGE_TEST_SAMPLE = JSON.stringify(
-  {
-    summary: "Wrapped the payment webhook retry migration and monitored rollout",
-    suggestedClarifications: [
-      "Confirm legacy cron job disablement before enabling retries",
-      "Validate alert coverage for duplicate refund detection"
-    ],
-    riskLevel: "medium",
-    testPlan: [
-      "Simulate retry burst with idempotency keys",
-      "Verify audit logs only include one refund per user",
-      "Ensure dashboards show retry latency within SLA"
-    ]
-  },
-  null,
-  2
-)
 
 function IndexPopup() {
   const manager = useMemo(() => new WorkflowManager(), [])
   const [runs, setRuns] = useState<WorkflowRunRecord[]>([])
   const [stepStateByRun, setStepStateByRun] = useState<Record<string, WorkflowStepSnapshot[]>>({})
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
-  const [storageTestStatus, setStorageTestStatus] = useState<string | null>(null)
 
   const debugMode = useMemo(() => {
     const envFlag = resolveDebugEnvFlag()
@@ -640,46 +581,6 @@ function IndexPopup() {
     [createInstrumentedRunOptions, manager]
   )
 
-  const handleStorageTestSave = useCallback(() => {
-    setStorageTestStatus("Queued storage test task…")
-    const { runOptions, assignRunId } = createInstrumentedRunOptions(STORAGE_TEST_TASK, {
-      initialInput: STORAGE_TEST_SAMPLE
-    })
-    const runId = manager.enqueue(STORAGE_TEST_TASK, runOptions)
-    assignRunId(runId)
-  }, [createInstrumentedRunOptions, manager])
-
-  const handleStorageTestInspect = useCallback(async () => {
-    try {
-      const artifacts = await listArtifacts({ limit: 5, order: "desc" })
-
-      const tableRows = artifacts.map((artifact) => {
-        const raw = artifact.payload.raw
-        const preview = typeof raw === "string" ? raw.slice(0, 120) : ""
-        return {
-          id: artifact.id,
-          type: artifact.type,
-          createdAt: new Date(artifact.createdAt).toLocaleString(),
-          tags: artifact.tags?.join(", ") ?? "—",
-          metadata: artifact.metadata ?? {},
-          payloadPreview: preview.length === raw.length ? preview : `${preview}…`
-        }
-      })
-
-      console.table(tableRows)
-      if (artifacts.length > 0) {
-        console.dir(artifacts, { depth: null })
-      }
-      setStorageTestStatus(
-        `Logged ${artifacts.length} artifact${artifacts.length === 1 ? "" : "s"} to the console.`
-      )
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      console.error("Failed to read artifacts", error)
-      setStorageTestStatus(`Failed to read artifacts: ${message}`)
-    }
-  }, [])
-
   return (
     <div className="w-[380px] max-w-full space-y-4 p-4">
       <header className="flex items-center justify-between rounded-2xl border bg-card px-4 py-3 shadow-sm">
@@ -899,32 +800,6 @@ function IndexPopup() {
               )}
             </div>
           </div>
-        ) : null}
-      </section>
-
-      <section className="space-y-3 rounded-2xl border border-dashed border-muted/50 bg-card/70 p-4 shadow-sm">
-        <div className="space-y-1">
-          <h2 className="text-sm font-semibold text-foreground">Storage action debug</h2>
-          <p className="text-xs text-muted-foreground">
-            Use these helpers while developing to persist a sample prompt result and inspect recent
-            entries.
-          </p>
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Button type="button" onClick={handleStorageTestSave} className="sm:flex-1">
-            Store sample artifact
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleStorageTestInspect}
-            className="sm:flex-1"
-          >
-            Log recent artifacts
-          </Button>
-        </div>
-        {storageTestStatus ? (
-          <p className="text-[11px] text-muted-foreground">{storageTestStatus}</p>
         ) : null}
       </section>
 
