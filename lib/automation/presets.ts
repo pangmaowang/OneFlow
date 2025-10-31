@@ -22,15 +22,20 @@ export const dailyDeveloperRecap: TaskDefinition = {
       description: "Process the content with AI",
       config: {
         template:
-          "Format version: {{formatVersion}}\nYou are preparing a JSON summary for an engineering daily update. Rely only on the supplied notes. The response MUST be valid JSON with no Markdown, code fences, or commentary. Keep entries concise and avoid duplicate bullet points.\n\nSchema fields:\n- summary: string\n- highlights: array of string (max 5)\n- blockers: array of string (max 3, return [] when none)\n- nextFocus: array of string (max 3)\n- actionItems: array of string (max 5)\n- draftPullRequest: object\n  * title: string\n  * content: string (multi-line body permitted)\n  * potentialRegressions: array of string (max 5, use [] when none)\n  * blastRadius: string (note the impacted areas)\n\nRules:\n1. Only emit the JSON object defined by the schema.\n2. Trim whitespace, remove bullet prefixes, and avoid numbering.\n3. Use [] for empty lists and an empty string for text fields when content is missing.\n4. Keep draftPullRequest factual, scoped to the supplied work, and avoid repeating earlier bullet points.\n\nNotes:\n{{input}}",
+          "Format version: {{formatVersion}}\nYou are preparing a JSON summary for an engineering daily update. Rely only on the supplied notes. The response MUST be valid JSON with no Markdown, code fences, or commentary. Keep entries concise and avoid duplicate bullet points.\n\nSchema fields:\n- summary: string\n- highlights: array of string (max 5)\n- suggestedClarifications: array of string (max 5, use [] when none)\n- blockers: array of string (max 3, return [] when none)\n- nextFocus: array of string (max 3)\n- testPlan: array of string (max 5, outline validations)\n- actionItems: array of string (max 5)\n- draftPullRequest: object\n  * title: string\n  * content: string (multi-line body permitted)\n  * potentialRegressions: array of string (max 5, use [] when none)\n  * blastRadius: string (note the impacted areas)\n  * testPlan: string (Markdown-ready, can be multi-line)\n\nRules:\n1. Only emit the JSON object defined by the schema.\n2. Trim whitespace, remove bullet prefixes, and avoid numbering.\n3. Use [] for empty lists and an empty string for text fields when content is missing.\n4. Populate suggestedClarifications with concrete questions or leave [] when no clarifications are needed.\n5. Keep draftPullRequest factual, scoped to the supplied work, and avoid repeating earlier bullet points; always include a testPlan section even if it states \"No tests required\".\n\nNotes:\n{{input}}",
         variables: {
-          formatVersion: "v1"
+          formatVersion: "v2"
         },
         schema: {
           type: "object",
           properties: {
             summary: { type: "string" },
             highlights: {
+              type: "array",
+              items: { type: "string" },
+              maxItems: 5
+            },
+            suggestedClarifications: {
               type: "array",
               items: { type: "string" },
               maxItems: 5
@@ -44,6 +49,11 @@ export const dailyDeveloperRecap: TaskDefinition = {
               type: "array",
               items: { type: "string" },
               maxItems: 3
+            },
+            testPlan: {
+              type: "array",
+              items: { type: "string" },
+              maxItems: 5
             },
             actionItems: {
               type: "array",
@@ -60,13 +70,21 @@ export const dailyDeveloperRecap: TaskDefinition = {
                   items: { type: "string" },
                   maxItems: 5
                 },
-                blastRadius: { type: "string" }
+                blastRadius: { type: "string" },
+                testPlan: { type: "string" }
               },
-              required: ["title", "content"],
+              required: ["title", "content", "testPlan"],
               additionalProperties: false
             }
           },
-          required: ["summary", "highlights", "nextFocus", "draftPullRequest"],
+          required: [
+            "summary",
+            "highlights",
+            "suggestedClarifications",
+            "nextFocus",
+            "testPlan",
+            "draftPullRequest"
+          ],
           additionalProperties: false
         },
         systemPrompt:
@@ -86,7 +104,7 @@ export const dailyDeveloperRecap: TaskDefinition = {
         artifactType: "daily-dev-recap",
         metadata: {
           presetId: "daily-dev",
-          schemaVersion: "v1"
+          schemaVersion: "v2"
         },
         tags: ["daily", "recap", "automation"],
         parseJson: true,
@@ -188,21 +206,6 @@ export const weeklySummaryReport: TaskDefinition = {
         autoOpenViewer: false
       }
     },
-    {
-      id: "storeWeeklyReport",
-      type: "store-artifact",
-      description: "Persist the generated weekly report for future reference.",
-      config: {
-        artifactType: "weekly-dev-report",
-        metadata: {
-          presetId: "weekly-summary",
-          schemaVersion: "week-v1"
-        },
-        tags: ["weekly", "report", "automation"],
-        parseJson: true,
-        skipWhenEmpty: false
-      }
-    }
   ]
 }
 

@@ -39,14 +39,17 @@ flowchart LR
 {
   "summary": "string",
   "highlights": ["string"],
+  "suggestedClarifications": ["string"],
   "blockers": ["string"],
   "nextFocus": ["string"],
+  "testPlan": ["string"],
   "actionItems": ["string"],
   "draftPullRequest": {
     "title": "string",
     "content": "string",
     "potentialRegressions": ["string"],
-    "blastRadius": "string"
+    "blastRadius": "string",
+    "testPlan": "string"
   }
 }
 ```

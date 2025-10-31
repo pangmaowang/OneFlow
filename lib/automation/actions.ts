@@ -1257,7 +1257,7 @@ function flattenStringList(value: unknown): string[] {
     if (typeof entry === "string") {
       const pieces = entry
         .split(/\r?\n+/)
-        .map((part) => part.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
+  .map((part) => part.replace(/^\s*(?:[-*•\?]|\d+[.)])\s*/, "").trim())
         .filter(Boolean)
       if (pieces.length === 0) {
         return
@@ -1288,7 +1288,8 @@ function flattenStringList(value: unknown): string[] {
         "value",
         "url",
         "slug",
-        "quote"
+        "quote",
+        "question"
       ]
       const collected = textKeys
         .map((key) => (typeof record[key] === "string" ? (record[key] as string) : null))
@@ -1350,19 +1351,21 @@ type NormalizedDraft = {
     content: string
     potentialRegressions: string[]
     blastRadius: string
+    testPlan: string
   }
   changed: boolean
   modifiedFields: string[]
 }
 
 function normalizeDraftPullRequest(value: unknown): NormalizedDraft {
-  const allowedKeys = new Set(["title", "content", "potentialRegressions", "blastRadius"])
+  const allowedKeys = new Set(["title", "content", "potentialRegressions", "blastRadius", "testPlan"])
   const result: NormalizedDraft = {
     value: {
       title: "",
       content: "",
       potentialRegressions: [],
-      blastRadius: ""
+      blastRadius: "",
+      testPlan: ""
     },
     changed: false,
     modifiedFields: []
@@ -1416,13 +1419,21 @@ function normalizeDraftPullRequest(value: unknown): NormalizedDraft {
   }
   result.value.blastRadius = blastRadius.value
 
+  const testPlan = coerceStringField(working.testPlan)
+  if (testPlan.changed || testPlan.value !== working.testPlan) {
+    result.changed = true
+    result.modifiedFields.push("draftPullRequest.testPlan")
+  }
+  result.value.testPlan = testPlan.value
+
   if (!result.changed) {
     return {
       value: {
         title: title.value,
         content: content.value,
         potentialRegressions: normalizedRegressions,
-        blastRadius: blastRadius.value
+        blastRadius: blastRadius.value,
+        testPlan: testPlan.value
       },
       changed: false,
       modifiedFields: []

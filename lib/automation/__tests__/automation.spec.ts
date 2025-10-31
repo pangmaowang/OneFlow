@@ -28,14 +28,17 @@ describe("automation pipeline", () => {
     const recapPayload = {
       summary: "Shipped OAuth migration fixes and aligned on tomorrow's rollout.",
       highlights: ["Resolved long-standing OAuth migration blockers"],
+      suggestedClarifications: ["Confirm rollout window with SRE"],
       blockers: [],
       nextFocus: ["Monitor production rollout"],
+      testPlan: ["Run smoke tests for OAuth flows"],
       actionItems: ["Draft post-release QA checklist"],
       draftPullRequest: {
         title: "OAuth migration polish",
         content: "## Summary\n- Hardened refresh token flow\n- Added smoke tests",
         potentialRegressions: ["OAuth login flows"],
-        blastRadius: "Auth service, session refresh"
+        blastRadius: "Auth service, session refresh",
+        testPlan: "## Test Plan\n- [ ] Smoke test OAuth login\n- [ ] Verify token refresh"
       }
     }
 
@@ -389,8 +392,18 @@ describe("structured-prompt normalization", () => {
         { text: "Coordinated rollout" },
         "Shipped async retries"
       ],
+      suggestedClarifications: [
+        "? Do we need PM approval",
+        { question: "Clarify fallback auth flows" },
+        "? Do we need PM approval"
+      ],
       blockers: "1. QA pending\n- Approvals missing",
       nextFocus: [["Ship release"], { title: "Prep docs" }, "Ship release"],
+      testPlan: [
+        "• Smoke test OAuth",
+        { text: "Regression test payments" },
+        "Smoke test OAuth"
+      ],
       actionItems: [
         { label: "Review PR" },
         "• Review PR",
@@ -405,6 +418,7 @@ describe("structured-prompt normalization", () => {
           "Login"
         ],
         blastRadius: { text: "Auth service + session cache" },
+        testPlan: ["  Validate login  ", { text: "Check session renewal" }],
         extraField: "should disappear"
       }
     })
@@ -464,11 +478,20 @@ describe("structured-prompt normalization", () => {
     expect(Array.isArray(output.highlights)).toBe(true)
     expect(output.highlights).toEqual(["Shipped async retries", "Coordinated rollout"])
 
+    expect(Array.isArray(output.suggestedClarifications)).toBe(true)
+    expect(output.suggestedClarifications).toEqual([
+      "Do we need PM approval",
+      "Clarify fallback auth flows"
+    ])
+
     expect(Array.isArray(output.blockers)).toBe(true)
     expect(output.blockers).toEqual(["QA pending", "Approvals missing"])
 
     expect(Array.isArray(output.nextFocus)).toBe(true)
     expect(output.nextFocus).toEqual(["Ship release", "Prep docs"])
+
+    expect(Array.isArray(output.testPlan)).toBe(true)
+    expect(output.testPlan).toEqual(["Smoke test OAuth", "Regression test payments"])
 
     expect(Array.isArray(output.actionItems)).toBe(true)
     expect(output.actionItems).toEqual(["Review PR", "Sync with QA"])
@@ -478,13 +501,15 @@ describe("structured-prompt normalization", () => {
       content: string
       potentialRegressions: string[]
       blastRadius: string
+      testPlan: string
     }
 
     expect(draft).toEqual({
       title: "Auth rollout",
       content: "Cleaned up auth flows\nNeed release notes",
       potentialRegressions: ["Login", "Session expiry"],
-      blastRadius: "Auth service + session cache"
+      blastRadius: "Auth service + session cache",
+      testPlan: "Validate login\nCheck session renewal"
     })
 
     const meta = result.meta as Record<string, unknown>
@@ -492,14 +517,17 @@ describe("structured-prompt normalization", () => {
     expect(new Set(meta?.normalizedFields as string[])).toEqual(
       new Set([
         "highlights",
+        "suggestedClarifications",
         "blockers",
         "nextFocus",
+        "testPlan",
         "actionItems",
         "summary",
         "draftPullRequest.title",
         "draftPullRequest.content",
         "draftPullRequest.potentialRegressions",
         "draftPullRequest.blastRadius",
+        "draftPullRequest.testPlan",
         "draftPullRequest.extraField"
       ])
     )
