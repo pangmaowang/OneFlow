@@ -253,10 +253,30 @@ export const blogResearchCapture: TaskDefinition = {
   ]
 }
 
-export type PresetId = "daily-dev" | "weekly-summary" | "blog-draft"
+export const blogWeeklyDigest: TaskDefinition = {
+  id: "blog-weekly",
+  name: "Blog weekly digest",
+  description: "Roll up stored blog research notes into a polished weekly briefing ready for planning.",
+  steps: [
+    {
+      id: "blogCollection",
+      type: "collect-blog-digest",
+      description: "Gather the latest blog research artifacts from storage.",
+      config: {
+        days: 7,
+        artifactType: "blog-research-note",
+        maxEntries: 60,
+        topTagsLimit: 6
+      }
+    }
+  ]
+}
+
+export type PresetId = "daily-dev" | "weekly-summary" | "blog-draft" | "blog-weekly"
 
 export const PRESET_REGISTRY: Record<PresetId, TaskDefinition> = {
   "daily-dev": dailyDeveloperRecap,
   "weekly-summary": weeklySummaryReport,
-  "blog-draft": blogResearchCapture
+  "blog-draft": blogResearchCapture,
+  "blog-weekly": blogWeeklyDigest
 }

@@ -3,9 +3,9 @@ import { describe, it, expect, afterEach } from "vitest"
 import { registerAction, requireAction } from "../actions"
 import { runTask } from "../runner"
 import { WorkflowManager } from "../workflow-manager"
-import { dailyDeveloperRecap, blogResearchCapture } from "../presets"
+import { dailyDeveloperRecap, blogResearchCapture, blogWeeklyDigest } from "../presets"
 import type { RegisteredAction, TaskDefinition } from "../types"
-import { clearArtifacts, listArtifacts } from "../../storage"
+import { clearArtifacts, listArtifacts, saveArtifact } from "../../storage"
 
 async function waitFor(condition: () => boolean, timeout = 500, interval = 10) {
   const start = Date.now()
@@ -257,6 +257,113 @@ describe("automation pipeline", () => {
   const storedParsed = stored?.payload.parsed as typeof normalizedBlogPayload | undefined
       expect(storedParsed).toBeDefined()
   expect(storedParsed!).toMatchObject(normalizedBlogPayload)
+    } finally {
+      if (originalAi === undefined) {
+        delete (globalThis as Record<string, unknown>).ai
+      } else {
+        (globalThis as Record<string, unknown>).ai = originalAi
+      }
+    }
+  })
+
+  it("runs the blog weekly digest workflow", async () => {
+    const originalAi = (globalThis as Record<string, unknown>).ai
+    delete (globalThis as Record<string, unknown>).ai
+    const now = Date.now()
+
+    const blogEntryA = {
+      summary: "Tracing pipelines for LLM powered UIs.",
+      tags: ["observability", "llm-platform"],
+      keyInsights: ["Trace prompts end-to-end", "Capture latency per provider"],
+      technicalHighlights: ["OpenTelemetry spans", "Custom trace exporters"],
+      narrativeDirections: ["Guide: debugging prompt drift"],
+      supportingLinks: ["https://example.com/llm-tracing"],
+      sourceUrl: "https://example.com/llm-tracing"
+    }
+
+    const blogEntryB = {
+      summary: "AI changelog workflows for product marketing.",
+      tags: ["product-marketing", "automation"],
+      keyInsights: ["Batch updates by theme", "Auto-summarize release notes"],
+      technicalHighlights: ["Workflow orchestrators"],
+      narrativeDirections: ["Case study: marketing-ready AI"],
+      supportingLinks: ["https://example.com/marketing-ai"],
+      sourceUrl: "https://example.com/marketing-ai"
+    }
+
+    await saveArtifact({
+      type: "blog-research-note",
+      payload: {
+        raw: JSON.stringify(blogEntryA),
+        parsed: blogEntryA
+      },
+      createdAt: now - 2 * 86_400_000
+    })
+
+    await saveArtifact({
+      type: "blog-research-note",
+      payload: {
+        raw: JSON.stringify(blogEntryB),
+        parsed: blogEntryB
+      },
+      createdAt: now - 86_400_000
+    })
+
+    try {
+      const result = await runTask(blogWeeklyDigest)
+
+      expect(result.success).toBe(true)
+      expect(result.output).toBeTruthy()
+
+      const digest = result.output as Record<string, unknown>
+
+      expect(typeof digest.summary).toBe("string")
+      expect((digest.summary as string).toLowerCase()).toContain("captured 2")
+
+      const topTags = (digest.topTags as Array<{ tag: string; count: number }>) ?? []
+      expect(topTags).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ tag: "observability", count: 1 }),
+          expect.objectContaining({ tag: "product-marketing", count: 1 })
+        ])
+      )
+
+      const totals = digest.totals as { notes?: number; tags?: number } | undefined
+      expect(totals?.notes).toBe(2)
+      expect((totals?.tags ?? 0)).toBeGreaterThanOrEqual(2)
+
+      const collections = (digest.collections as Array<{ tag: string; entries: Array<{ summary: string }> }>) ?? []
+      const observabilityCollection = collections.find((collection) => collection.tag === "observability")
+      expect(observabilityCollection).toBeDefined()
+      expect(observabilityCollection?.entries?.[0]?.summary).toContain("Tracing pipelines")
+
+      const marketingCollection = collections.find((collection) => collection.tag === "product-marketing")
+      expect(marketingCollection).toBeDefined()
+      expect(marketingCollection?.entries?.[0]?.summary).toContain("AI changelog")
+
+      const recommendedAngles = (digest.recommendedAngles as string[]) ?? []
+      expect(recommendedAngles).toContain("Case study: marketing-ready AI")
+
+      const supportingLinks = (digest.supportingLinks as string[]) ?? []
+      expect(supportingLinks).toEqual(
+        expect.arrayContaining(["https://example.com/llm-tracing", "https://example.com/marketing-ai"])
+      )
+
+      const spotlightArticles = (digest.spotlightArticles as Array<{ summary: string; tags: string[] }>) ?? []
+      expect(spotlightArticles.length).toBeGreaterThan(0)
+      expect(spotlightArticles.map((item) => item.summary)).toEqual(
+        expect.arrayContaining([blogEntryA.summary, blogEntryB.summary])
+      )
+      expect(spotlightArticles).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            tags: expect.arrayContaining(["observability", "llm-platform"])
+          })
+        ])
+      )
+
+      const [stored] = await listArtifacts({ type: "blog-weekly-report", limit: 1 })
+      expect(stored).toBeUndefined()
     } finally {
       if (originalAi === undefined) {
         delete (globalThis as Record<string, unknown>).ai

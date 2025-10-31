@@ -33,6 +33,7 @@ import {
 
 const registry = new Map<ActionType, RegisteredAction<ActionType>>()
 const storeArtifactDebug = createScopedDebugger("automation/store-artifact")
+const collectBlogDebug = createScopedDebugger("automation/collect-blog-digest")
 
 const BLOG_PROMPT_DEFAULT_FORMAT = "blog-v3"
 
@@ -145,6 +146,12 @@ registerAction("blog-prompt", {
   name: "Blog prompt",
   description: "Extract blog-ready research notes from captured content",
   run: blogPromptAction
+})
+
+registerAction("collect-blog-digest", {
+  name: "Collect blog research",
+  description: "Gather stored blog research notes for weekly synthesis",
+  run: collectBlogDigestAction
 })
 
 registerAction("store-artifact", {
@@ -362,6 +369,185 @@ async function collectWeeklySummaryAction({ step }: ActionExecutionArgs<"collect
         actionItems: entry.actionItems.length
       }))
     }
+  }
+}
+
+type BlogDigestEntry = {
+  id: string
+  createdAt: number
+  dateISO: string
+  dateLabel: string
+  summary: string
+  tags: string[]
+  keyInsights: string[]
+  technicalHighlights: string[]
+  narrativeDirections: string[]
+  supportingLinks: string[]
+  sourceUrl?: string
+}
+
+type BlogTagSummary = {
+  tag: string
+  count: number
+}
+
+type BlogDigestResult = {
+  summary: string
+  timeframe: {
+    label: string
+    startISO: string
+    endISO: string
+  }
+  totals: {
+    notes: number
+    tags: number
+    supportingLinks: number
+  }
+  topTags: BlogTagSummary[]
+  spotlightArticles: Array<{
+    id: string
+    date?: string
+    summary: string
+    tags: string[]
+    keyInsights: string[]
+    technicalHighlights: string[]
+    supportingLinks: string[]
+    sourceUrl?: string
+  }>
+  collections: Array<{
+    tag: string
+    synopsis: string
+    entries: Array<{
+      id: string
+      summary: string
+      keyInsights: string[]
+      supportingLinks: string[]
+      dateLabel?: string
+    }>
+  }>
+  recommendedAngles: string[]
+  supportingLinks: string[]
+}
+
+async function collectBlogDigestAction({ step }: ActionExecutionArgs<"collect-blog-digest">) {
+  const config = step.config ?? {}
+  const days = config.days && config.days > 0 ? config.days : 7
+  const artifactType = config.artifactType ?? "blog-research-note"
+  const maxEntries = Math.max(config.maxEntries ?? days * 6, days)
+  const topTagsLimit = config.topTagsLimit && config.topTagsLimit > 0 ? config.topTagsLimit : 6
+  const cutoff = Date.now() - days * DAY_IN_MS
+
+  const artifacts = await listArtifacts({
+    type: artifactType,
+    order: "desc",
+    limit: maxEntries
+  })
+
+  const withinWindow: BlogDigestEntry[] = []
+  let staleCount = 0
+
+  for (const record of artifacts) {
+    if (record.createdAt >= cutoff) {
+      const normalized = normalizeBlogDigest(record)
+      if (normalized) {
+        withinWindow.push(normalized)
+      }
+    } else {
+      staleCount += 1
+    }
+  }
+
+  if (withinWindow.length === 0) {
+    return {
+      success: false as const,
+      error: new Error("No blog research notes found for the selected window"),
+      meta: {
+        artifactType,
+        days,
+        staleCount,
+        entryCount: 0
+      }
+    }
+  }
+
+  const sorted = withinWindow.sort((a, b) => a.createdAt - b.createdAt)
+  const rangeLabel = formatDateRange(sorted[0].createdAt, sorted[sorted.length - 1].createdAt)
+  const tagIndex = buildBlogTagIndex(sorted)
+  const tagSummaries = buildTagSummaries(tagIndex).slice(0, topTagsLimit)
+  const uniqueTagCount = Array.from(tagIndex.keys()).filter((tag) => tag !== "__untagged__").length
+  const spotlightArticles = buildSpotlightArticles(sorted)
+  const collections = buildBlogCollections(tagIndex)
+  const recommendedAngles = deriveRecommendedAngles(sorted)
+  const supportingLinks = collectSupportingLinks(sorted)
+
+  const digest: BlogDigestResult = {
+    summary: buildBlogDigestSummary({
+      noteCount: sorted.length,
+      uniqueTagCount,
+      rangeLabel,
+      tagSummaries
+    }),
+    timeframe: {
+      label: rangeLabel,
+      startISO: sorted[0].dateISO,
+      endISO: sorted[sorted.length - 1].dateISO
+    },
+    totals: {
+      notes: sorted.length,
+      tags: uniqueTagCount,
+      supportingLinks: supportingLinks.length
+    },
+    topTags: tagSummaries,
+    spotlightArticles,
+    collections,
+    recommendedAngles,
+    supportingLinks
+  }
+
+  const metaPayload: Record<string, unknown> = {
+    artifactType,
+    days,
+    staleCount,
+    entryCount: sorted.length,
+    tagCount: uniqueTagCount,
+    rangeStart: sorted[0].dateISO,
+    rangeEnd: sorted[sorted.length - 1].dateISO,
+    topTags: tagSummaries,
+    spotlightCount: spotlightArticles.length,
+    supportingLinkCount: supportingLinks.length,
+    entries: sorted.map((entry) => ({
+      id: entry.id,
+      date: entry.dateISO,
+      tags: entry.tags,
+      keyInsights: entry.keyInsights.length,
+      supportingLinks: entry.supportingLinks.length
+    }))
+  }
+
+  const canUseViewer =
+    typeof chrome !== "undefined" &&
+    Boolean(chrome.runtime?.getURL) &&
+    Boolean(chrome.tabs?.create)
+
+  if (canUseViewer) {
+    try {
+      const viewerKey = await stashAutomationResult(digest, {
+        taskId: step.id,
+        taskName: step.description ?? step.type,
+        stepId: step.id
+      })
+      metaPayload.viewerAvailable = true
+      metaPayload.viewerKey = viewerKey
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      collectBlogDebug("viewer-stash-error", { message })
+    }
+  }
+
+  return {
+    success: true as const,
+    output: digest,
+    meta: metaPayload
   }
 }
 
@@ -1444,6 +1630,36 @@ function normalizeWeeklyRecap(record: StoredArtifactRecord): WeeklyRecapEntry | 
   }
 }
 
+function normalizeBlogDigest(record: StoredArtifactRecord): BlogDigestEntry | null {
+  const parsed = resolveRecapPayload(record.payload)
+  if (!parsed) {
+    return null
+  }
+
+  const summary = typeof parsed.summary === "string" ? parsed.summary.trim() : ""
+  const tags = ensureStringList(parsed.tags)
+  const keyInsights = ensureStringList(parsed.keyInsights)
+  const technicalHighlights = ensureStringList(parsed.technicalHighlights)
+  const narrativeDirections = ensureStringList(parsed.narrativeDirections)
+  const supportingLinks = ensureStringList(parsed.supportingLinks)
+  const sourceUrl = typeof parsed.sourceUrl === "string" ? parsed.sourceUrl.trim() : ""
+  const date = new Date(record.createdAt)
+
+  return {
+    id: record.id,
+    createdAt: record.createdAt,
+    dateISO: date.toISOString(),
+    dateLabel: formatDateLabel(date),
+    summary,
+    tags,
+    keyInsights,
+    technicalHighlights,
+    narrativeDirections,
+    supportingLinks,
+    sourceUrl: sourceUrl || undefined
+  }
+}
+
 function resolveRecapPayload(payload: StoredArtifactPayload) {
   if (payload.parsed && typeof payload.parsed === "object") {
     return payload.parsed as Record<string, unknown>
@@ -1481,6 +1697,45 @@ function ensureStringList(value: unknown) {
   }
 
   return [] as string[]
+}
+
+function buildBlogTagIndex(entries: BlogDigestEntry[]) {
+  const map = new Map<string, BlogDigestEntry[]>()
+
+  const push = (tag: string, entry: BlogDigestEntry) => {
+    const current = map.get(tag)
+    if (current) {
+      current.push(entry)
+    } else {
+      map.set(tag, [entry])
+    }
+  }
+
+  for (const entry of entries) {
+    if (entry.tags.length === 0) {
+      push("__untagged__", entry)
+      continue
+    }
+    entry.tags.forEach((tag) => push(tag, entry))
+  }
+
+  for (const [, list] of map) {
+    list.sort((a, b) => a.createdAt - b.createdAt)
+  }
+
+  return map
+}
+
+function buildTagSummaries(index: Map<string, BlogDigestEntry[]>) {
+  const summaries: BlogTagSummary[] = []
+  for (const [tag, entries] of index.entries()) {
+    if (tag === "__untagged__") {
+      continue
+    }
+    summaries.push({ tag, count: entries.length })
+  }
+
+  return summaries.sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
 }
 
 function formatDateLabel(date: Date) {
@@ -1523,6 +1778,175 @@ function buildWeeklyPromptSection(entry: WeeklyRecapEntry, index: number) {
     `Next focus:\n${nextFocus}`,
     `Action items:\n${actionItems}`
   ].join("\n")
+}
+
+function buildBlogDigestSummary({
+  noteCount,
+  uniqueTagCount,
+  rangeLabel,
+  tagSummaries
+}: {
+  noteCount: number
+  uniqueTagCount: number
+  rangeLabel: string
+  tagSummaries: BlogTagSummary[]
+}) {
+  const noteLabel = noteCount === 1 ? "note" : "notes"
+  const tagLabel = uniqueTagCount === 1 ? "tag" : "tags"
+  const intro = `Captured ${noteCount} research ${noteLabel} across ${uniqueTagCount} ${tagLabel} over ${rangeLabel}.`
+
+  if (tagSummaries.length === 0) {
+    return intro
+  }
+
+  const topThemes = tagSummaries
+    .slice(0, Math.min(3, tagSummaries.length))
+    .map((entry) => `${entry.tag} (${entry.count})`)
+    .join(", ")
+
+  return `${intro} Top themes: ${topThemes}.`
+}
+
+function buildSpotlightArticles(entries: BlogDigestEntry[], limit = 3) {
+  const sorted = [...entries].sort((a, b) => b.createdAt - a.createdAt)
+  return sorted.slice(0, limit).map((entry) => {
+    const summary = entry.summary || entry.keyInsights[0] || entry.narrativeDirections[0] || "Untitled insight"
+    return {
+      id: entry.id,
+      date: entry.dateLabel,
+      summary,
+      tags: entry.tags.slice(0, 4),
+      keyInsights: entry.keyInsights.slice(0, 4),
+      technicalHighlights: entry.technicalHighlights.slice(0, 4),
+      supportingLinks: collectLinksFromEntry(entry).slice(0, 3),
+      sourceUrl: entry.sourceUrl
+    }
+  })
+}
+
+function buildBlogCollections(
+  index: Map<string, BlogDigestEntry[]>,
+  limit = 6,
+  entriesPerTag = 6
+) {
+  const collections: Array<{
+    tag: string
+    synopsis: string
+    entries: Array<{
+      id: string
+      summary: string
+      keyInsights: string[]
+      supportingLinks: string[]
+      dateLabel?: string
+    }>
+  }> = []
+
+  for (const [tag, tagEntries] of index.entries()) {
+    if (tag === "__untagged__") {
+      continue
+    }
+
+    const entries = tagEntries.slice(-entriesPerTag)
+    if (entries.length === 0) {
+      continue
+    }
+
+    const latest = entries[entries.length - 1]
+    const notableInsight = entries.find((entry) => entry.keyInsights.length)?.keyInsights[0]
+    const synopsisParts = [`${tagEntries.length} ${tagEntries.length === 1 ? "note" : "notes"} captured`]
+
+    if (latest) {
+      const highlight = latest.summary || latest.keyInsights[0] || latest.narrativeDirections[0]
+      if (highlight) {
+        synopsisParts.push(`Latest: ${highlight}`)
+      }
+    }
+
+    if (notableInsight) {
+      synopsisParts.push(`Key insight: ${notableInsight}`)
+    }
+
+    const normalizedEntries = entries.map((entry) => ({
+      id: entry.id,
+      summary: entry.summary || entry.keyInsights[0] || entry.narrativeDirections[0] || "Note highlight",
+      keyInsights: entry.keyInsights.slice(0, 4),
+      supportingLinks: collectLinksFromEntry(entry).slice(0, 3),
+      dateLabel: entry.dateLabel
+    }))
+
+    collections.push({
+      tag,
+      synopsis: synopsisParts.join(" · "),
+      entries: normalizedEntries
+    })
+  }
+
+  return collections.slice(0, limit)
+}
+
+function deriveRecommendedAngles(entries: BlogDigestEntry[], limit = 6) {
+  return collectUniqueStrings(entries.flatMap((entry) => entry.narrativeDirections ?? []), limit)
+}
+
+function collectSupportingLinks(entries: BlogDigestEntry[], limit = 12) {
+  const seen = new Set<string>()
+  const result: string[] = []
+
+  for (const entry of entries.slice().sort((a, b) => b.createdAt - a.createdAt)) {
+    for (const link of collectLinksFromEntry(entry)) {
+      if (!seen.has(link)) {
+        seen.add(link)
+        result.push(link)
+        if (result.length >= limit) {
+          return result
+        }
+      }
+    }
+  }
+
+  return result
+}
+
+function collectLinksFromEntry(entry: BlogDigestEntry) {
+  const seen = new Set<string>()
+  const links: string[] = []
+  const push = (value?: string) => {
+    if (!value) {
+      return
+    }
+    const trimmed = value.trim()
+    if (!trimmed || seen.has(trimmed)) {
+      return
+    }
+    seen.add(trimmed)
+    links.push(trimmed)
+  }
+
+  entry.supportingLinks.forEach(push)
+  push(entry.sourceUrl)
+  return links
+}
+
+function collectUniqueStrings(values: Iterable<string>, limit?: number) {
+  const seen = new Set<string>()
+  const result: string[] = []
+
+  for (const value of values) {
+    if (!value) {
+      continue
+    }
+    const trimmed = value.trim()
+    if (!trimmed || seen.has(trimmed)) {
+      continue
+    }
+    result.push(trimmed)
+    seen.add(trimmed)
+    if (limit && result.length >= limit) {
+      break
+    }
+  }
+
+  return result
 }
 
 function formatTemplateOutput(
