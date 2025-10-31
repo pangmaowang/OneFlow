@@ -188,21 +188,6 @@ export const weeklySummaryReport: TaskDefinition = {
         autoOpenViewer: false
       }
     },
-    {
-      id: "storeWeeklyReport",
-      type: "store-artifact",
-      description: "Persist the generated weekly report for future reference.",
-      config: {
-        artifactType: "weekly-dev-report",
-        metadata: {
-          presetId: "weekly-summary",
-          schemaVersion: "week-v1"
-        },
-        tags: ["weekly", "report", "automation"],
-        parseJson: true,
-        skipWhenEmpty: false
-      }
-    }
   ]
 }
 

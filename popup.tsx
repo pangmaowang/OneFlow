@@ -465,12 +465,20 @@ function IndexPopup() {
       return null
     }
     const outputValue = latestSuccess.result?.output
-    if (outputValue == null) {
-      return "No output produced"
+    if (outputValue === null || outputValue === undefined) {
+      return null
     }
-    return typeof outputValue === "string"
-      ? outputValue
-      : JSON.stringify(outputValue, null, 2)
+
+    if (typeof outputValue === "string") {
+      const trimmed = outputValue.trim()
+      return trimmed.length > 0 ? trimmed : null
+    }
+
+    try {
+      return JSON.stringify(outputValue, null, 2)
+    } catch (_error) {
+      return String(outputValue)
+    }
   }, [latestSuccess])
 
   const lastError = useMemo(() => {
@@ -576,6 +584,8 @@ function IndexPopup() {
       viewerAvailable
     }
   }, [latestSuccess])
+
+  const shouldShowLatestRunPanel = debugMode && Boolean(lastOutput || lastError)
 
   const handleRunPreset = useCallback(
     (action: QuickAction) => {
@@ -820,7 +830,7 @@ function IndexPopup() {
         ) : null}
       </section>
 
-      {lastOutput || lastError ? (
+      {shouldShowLatestRunPanel ? (
         <Card className="rounded-2xl border bg-card/80 shadow-sm">
           <CardHeader>
             <CardTitle className="text-sm">Latest run output</CardTitle>
