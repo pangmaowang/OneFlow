@@ -31,6 +31,23 @@ export type CollectWeeklySummaryConfig = {
   maxEntries?: number
 }
 
+export type CollectBlogDigestConfig = {
+  /** Number of days to include when gathering blog research notes. Defaults to 7. */
+  days?: number
+  /** Artifact type backing the stored blog artifacts. Defaults to "blog-research-note". */
+  artifactType?: string
+  /** Upper bound on fetched entries before date filtering. */
+  maxEntries?: number
+  /** Maximum distinct tags to highlight in the digest metadata. */
+  topTagsLimit?: number
+}
+
+export type BlogPromptConfig = Omit<StructuredPromptConfig, "template" | "schema" | "variables"> & {
+  template?: StructuredPromptConfig["template"]
+  schema?: StructuredPromptConfig["schema"]
+  variables?: StructuredPromptConfig["variables"]
+}
+
 export type StructuredPromptConfig = {
   /** Prompt template that supports {{placeholders}}. */
   template: string
@@ -72,12 +89,16 @@ export type ActionType =
   | "structured-prompt"
   | "store-artifact"
   | "collect-weekly-summary"
+  | "blog-prompt"
+  | "collect-blog-digest"
 
 export interface ActionTypeConfigMap {
   "read-page": ReadPageConfig
   "structured-prompt": StructuredPromptConfig
   "store-artifact": StoreArtifactConfig
   "collect-weekly-summary": CollectWeeklySummaryConfig
+  "blog-prompt": BlogPromptConfig
+  "collect-blog-digest": CollectBlogDigestConfig
 }
 
 type ActionStepBase<TType extends ActionType> = {

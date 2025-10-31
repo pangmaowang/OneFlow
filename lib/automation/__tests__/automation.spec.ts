@@ -3,9 +3,9 @@ import { describe, it, expect, afterEach } from "vitest"
 import { registerAction, requireAction } from "../actions"
 import { runTask } from "../runner"
 import { WorkflowManager } from "../workflow-manager"
-import { dailyDeveloperRecap } from "../presets"
+import { dailyDeveloperRecap, blogResearchCapture, blogWeeklyDigest } from "../presets"
 import type { RegisteredAction, TaskDefinition } from "../types"
-import { clearArtifacts, listArtifacts } from "../../storage"
+import { clearArtifacts, listArtifacts, saveArtifact } from "../../storage"
 
 async function waitFor(condition: () => boolean, timeout = 500, interval = 10) {
   const start = Date.now()
@@ -157,6 +157,220 @@ describe("automation pipeline", () => {
     expect(result.output).toContain("Breaking News")
     expect(result.output).toContain("The build is green and shipping today.")
     expect(result.output).not.toContain("evil")
+  })
+
+  it("runs the blog research workflow end-to-end", async () => {
+    const originalAi = (globalThis as Record<string, unknown>).ai
+    const messyBlogPayload = {
+      summary: ["  Generative UI thrives when resilient tracing keeps interfaces honest.  "],
+      tags: ["  generative-ui  ", { slug: "observability" }, ["generative-ui"], "frontend-ai"],
+      keyInsights: [
+        "1. Treat traces as user-facing telemetry",
+        { text: "Map interaction debt before scaling" },
+        ["Treat traces as user-facing telemetry"]
+      ],
+      technicalHighlights: [
+        "OpenTelemetry spans",
+        { text: "LLM guardrails" },
+        ["Circuit breakers for UI"]
+      ],
+      narrativeDirections: [
+        "• Contrast pre/post tracing workflows",
+        { value: "Guide: building dashboards that reveal prompt drift" }
+      ],
+      supportingLinks: [
+        "https://example.com/tracing",
+        { url: "https://example.com/prompt-drift" },
+        "https://example.com/tracing"
+      ],
+      sourceUrl: [" https://example.com/original ", { url: "https://example.com/original" }]
+    }
+
+    const normalizedBlogPayload = {
+      summary: "Generative UI thrives when resilient tracing keeps interfaces honest.",
+      tags: ["generative-ui", "observability", "frontend-ai"],
+      keyInsights: [
+        "Treat traces as user-facing telemetry",
+        "Map interaction debt before scaling"
+      ],
+      technicalHighlights: [
+        "OpenTelemetry spans",
+        "LLM guardrails",
+        "Circuit breakers for UI"
+      ],
+      narrativeDirections: [
+        "Contrast pre/post tracing workflows",
+        "Guide: building dashboards that reveal prompt drift"
+      ],
+      supportingLinks: [
+        "https://example.com/tracing",
+        "https://example.com/prompt-drift"
+      ],
+      sourceUrl: "https://example.com/original"
+    }
+
+    ;(globalThis as Record<string, unknown>).ai = {
+      languageModel: {
+        async availability() {
+          return "available"
+        },
+        async create() {
+          return {
+            async prompt() {
+              return JSON.stringify(messyBlogPayload)
+            },
+            destroy() {
+              /* noop */
+            }
+          }
+        }
+      }
+    }
+
+    try {
+      const result = await runTask(blogResearchCapture, {
+        context: {
+          pageContent:
+            "Design systems need resilience. Outline async loading states, fallback patterns, and token layering strategies."
+        }
+      })
+
+      expect(result.success).toBe(true)
+
+      const artifact = result.output as {
+        type: string
+        payload: { parsed?: unknown }
+      }
+
+  expect(artifact.type).toBe("blog-research-note")
+  const parsed = artifact.payload.parsed as typeof normalizedBlogPayload
+  expect(parsed).toMatchObject(normalizedBlogPayload)
+  expect(parsed.sourceUrl).toBe("https://example.com/original")
+
+      const promptStep = result.steps.find((entry) => entry.step.type === "blog-prompt")
+      const promptMeta = (promptStep?.result.meta ?? {}) as Record<string, unknown>
+  expect(promptMeta.blogPrompt).toBe(true)
+  expect(promptMeta.blogSchemaVersion).toBe("blog-v3")
+
+      const [stored] = await listArtifacts({ type: "blog-research-note", limit: 1 })
+      expect(stored).toBeDefined()
+  const storedParsed = stored?.payload.parsed as typeof normalizedBlogPayload | undefined
+      expect(storedParsed).toBeDefined()
+  expect(storedParsed!).toMatchObject(normalizedBlogPayload)
+    } finally {
+      if (originalAi === undefined) {
+        delete (globalThis as Record<string, unknown>).ai
+      } else {
+        (globalThis as Record<string, unknown>).ai = originalAi
+      }
+    }
+  })
+
+  it("runs the blog weekly digest workflow", async () => {
+    const originalAi = (globalThis as Record<string, unknown>).ai
+    delete (globalThis as Record<string, unknown>).ai
+    const now = Date.now()
+
+    const blogEntryA = {
+      summary: "Tracing pipelines for LLM powered UIs.",
+      tags: ["observability", "llm-platform"],
+      keyInsights: ["Trace prompts end-to-end", "Capture latency per provider"],
+      technicalHighlights: ["OpenTelemetry spans", "Custom trace exporters"],
+      narrativeDirections: ["Guide: debugging prompt drift"],
+      supportingLinks: ["https://example.com/llm-tracing"],
+      sourceUrl: "https://example.com/llm-tracing"
+    }
+
+    const blogEntryB = {
+      summary: "AI changelog workflows for product marketing.",
+      tags: ["product-marketing", "automation"],
+      keyInsights: ["Batch updates by theme", "Auto-summarize release notes"],
+      technicalHighlights: ["Workflow orchestrators"],
+      narrativeDirections: ["Case study: marketing-ready AI"],
+      supportingLinks: ["https://example.com/marketing-ai"],
+      sourceUrl: "https://example.com/marketing-ai"
+    }
+
+    await saveArtifact({
+      type: "blog-research-note",
+      payload: {
+        raw: JSON.stringify(blogEntryA),
+        parsed: blogEntryA
+      },
+      createdAt: now - 2 * 86_400_000
+    })
+
+    await saveArtifact({
+      type: "blog-research-note",
+      payload: {
+        raw: JSON.stringify(blogEntryB),
+        parsed: blogEntryB
+      },
+      createdAt: now - 86_400_000
+    })
+
+    try {
+      const result = await runTask(blogWeeklyDigest)
+
+      expect(result.success).toBe(true)
+      expect(result.output).toBeTruthy()
+
+      const digest = result.output as Record<string, unknown>
+
+      expect(typeof digest.summary).toBe("string")
+      expect((digest.summary as string).toLowerCase()).toContain("captured 2")
+
+      const topTags = (digest.topTags as Array<{ tag: string; count: number }>) ?? []
+      expect(topTags).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ tag: "observability", count: 1 }),
+          expect.objectContaining({ tag: "product-marketing", count: 1 })
+        ])
+      )
+
+      const totals = digest.totals as { notes?: number; tags?: number } | undefined
+      expect(totals?.notes).toBe(2)
+      expect((totals?.tags ?? 0)).toBeGreaterThanOrEqual(2)
+
+      const collections = (digest.collections as Array<{ tag: string; entries: Array<{ summary: string }> }>) ?? []
+      const observabilityCollection = collections.find((collection) => collection.tag === "observability")
+      expect(observabilityCollection).toBeDefined()
+      expect(observabilityCollection?.entries?.[0]?.summary).toContain("Tracing pipelines")
+
+      const marketingCollection = collections.find((collection) => collection.tag === "product-marketing")
+      expect(marketingCollection).toBeDefined()
+      expect(marketingCollection?.entries?.[0]?.summary).toContain("AI changelog")
+
+      const recommendedAngles = (digest.recommendedAngles as string[]) ?? []
+      expect(recommendedAngles).toContain("Case study: marketing-ready AI")
+
+      const supportingLinks = (digest.supportingLinks as string[]) ?? []
+      expect(supportingLinks).toEqual(
+        expect.arrayContaining(["https://example.com/llm-tracing", "https://example.com/marketing-ai"])
+      )
+
+      const spotlightArticles = (digest.spotlightArticles as Array<{ summary: string; tags: string[] }>) ?? []
+      expect(spotlightArticles.length).toBeGreaterThan(0)
+      expect(spotlightArticles.map((item) => item.summary)).toEqual(
+        expect.arrayContaining([blogEntryA.summary, blogEntryB.summary])
+      )
+      expect(spotlightArticles).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            tags: expect.arrayContaining(["observability", "llm-platform"])
+          })
+        ])
+      )
+
+      const [stored] = await listArtifacts({ type: "blog-weekly-report", limit: 1 })
+      expect(stored).toBeUndefined()
+    } finally {
+      if (originalAi === undefined) {
+        delete (globalThis as Record<string, unknown>).ai
+      } else {
+        (globalThis as Record<string, unknown>).ai = originalAi
+      }
+    }
   })
 })
 

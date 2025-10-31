@@ -8,6 +8,7 @@ OneFlow turns the dreaded “status update” into a one-click performance—and
 
 - **Daily dev debrief** – Understand the ticket, capture what matters, and spin it into a shine-worthy async update (draft PR copy included).
 - **Weekly highlight reel** – Roll seven days of recaps into a leadership-ready briefing without rereading a single doc.
+- **Blog research capture** – Clip any article and auto-extract summaries, tags, key insights, technical angles, writing directions, and the source link for your next post.
 - **Future-ready workflows** – The same automation engine can power blog posts, changelog blurbs, or bespoke multi-step flows as you extend the presets.
 - **Automation timeline** – Watch each action report in as the workflow runs, with optional debug crumb trails for deep dives.
 - **Result stash & viewer** – Every run is archived, searchable, and viewable in a dedicated tab complete with Markdown export.
@@ -37,6 +38,10 @@ Then load `build/chrome-mv3-dev` as an unpacked extension in Chrome. The popup h
 	- Collects recent daily recaps from storage.
 	- Synthesizes an exec-friendly weekly brief with per-day breakdowns.
 	- Stashes the result so you can download or share it on demand.
+3. **Blog research capture** (`blog-draft`)
+	- Reads a page or supplied text to gather source material.
+	- Uses the blog prompt action to structure summaries, tags, key insights, technical highlights, narrative directions, and supporting links (including the original URL).
+	- Stores the JSON artifact (`blog-research-note`) for future drafting or sharing.
 
 ## Testing & Quality Gates
 

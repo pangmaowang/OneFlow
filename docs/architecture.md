@@ -32,6 +32,7 @@ flowchart LR
 - **structured-prompt** – Renders templates, hits the Chrome Prompt API when available, normalizes JSON (including nested `draftPullRequest` fields), and stashes viewer-ready artifacts.
 - **collect-weekly-summary** – Pulls recent daily recaps from storage, formats them into a prompt-ready digest, and reports range metadata.
 - **store-artifact** – Persists raw + parsed payloads with metadata/tags so later workflows can retrieve structured results.
+- **blog-prompt** – Wraps the structured prompt action with a blog-oriented template and schema, producing reusable notes (summary, tags, quotes, sections) for long-form content.
 
 ## Daily Dev Debrief Schema
 ```json
@@ -74,3 +75,4 @@ flowchart LR
 ## Future Hooks
 - Additional actions can register through `registerAction` and become available to presets and the popup with minimal wiring.
 - Stashed artifacts already capture metadata for download/export; wiring cloud sync or team sharing would bolt onto the same store.
+- New presets can chain `blog-prompt` with other actions (e.g., summarizers, translators) to expand beyond engineering updates into marketing or comms workflows.

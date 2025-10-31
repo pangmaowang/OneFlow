@@ -21,7 +21,9 @@ import {
   CalendarRange,
   CheckCircle2,
   Clock3,
+  Feather,
   Loader2,
+  NotebookPen,
   PlusCircle,
   Sparkles,
   XCircle
@@ -249,6 +251,22 @@ const QUICK_ACTIONS: QuickAction[] = [
     className: "border-amber-300/60 bg-amber-200/15 text-amber-700 hover:bg-amber-200/25",
     iconClassName: "text-amber-500",
     presetId: "weekly-summary"
+  },
+  {
+    label: "Blog research kit",
+    description: "Clip any page and capture summary, tags, insights, technical angles, and source links for your blog.",
+    icon: Feather,
+    className: "border-sky-300/60 bg-sky-200/15 text-sky-800 hover:bg-sky-200/20",
+    iconClassName: "text-sky-500",
+    presetId: "blog-draft"
+  },
+  {
+    label: "Blog weekly digest",
+    description: "Blend the week’s research notes into an editorial brief with top tags, spotlights, and next angles.",
+    icon: NotebookPen,
+    className: "border-indigo-300/60 bg-indigo-200/15 text-indigo-800 hover:bg-indigo-200/20",
+    iconClassName: "text-indigo-500",
+    presetId: "blog-weekly"
   },
   {
     label: "Add custom flow",
