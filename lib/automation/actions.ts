@@ -13,6 +13,7 @@ import type {
   ActionExecutionArgs,
   ActionExecutionResult,
   ActionType,
+  BlogPromptConfig,
   ReadPageConfig,
   RegisteredAction,
   StructuredPromptConfig
@@ -32,6 +33,67 @@ import {
 
 const registry = new Map<ActionType, RegisteredAction<ActionType>>()
 const storeArtifactDebug = createScopedDebugger("automation/store-artifact")
+
+const BLOG_PROMPT_DEFAULT_FORMAT = "blog-v3"
+
+const BLOG_PROMPT_DEFAULT_TEMPLATE = `Format version: {{formatVersion}}
+You are compiling research notes for a future blog post. Study only the supplied page content and distill it into the JSON schema below. The response MUST be valid JSON with no commentary and no markdown code fences.
+
+Schema fields:
+- summary: string (2-3 sentences capturing the page's core idea)
+- tags: array of string (2-3 concise, lowercase slugs that cluster the topic)
+- keyInsights: array of string (max 6, succinct takeaways)
+- technicalHighlights: array of string (max 6, noteworthy technologies, APIs, or data points)
+- narrativeDirections: array of string (max 4, suggested angles or outlines for the post)
+- supportingLinks: array of string (max 4, absolute URLs worth revisiting)
+- sourceUrl: string (the canonical URL for the captured page, empty string when unavailable)
+
+Rules:
+1. Emit only the JSON object with the schema above.
+2. Trim whitespace, remove numbering or bullet prefixes, and deduplicate entries.
+3. Use [] for empty lists and an empty string when information is missing.
+4. For tags, cite 2-3 short identifiers that would help group this article with similar themes (use hyphenated slugs when possible).
+5. If the provided content includes a line beginning with "URL:", reuse that value for sourceUrl.
+6. Preserve factual accuracy—do not invent details beyond the source content.
+
+Page content:
+{{input}}`
+
+const BLOG_PROMPT_DEFAULT_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    summary: { type: "string" },
+    tags: {
+      type: "array",
+      items: { type: "string" },
+      minItems: 2,
+      maxItems: 3
+    },
+    keyInsights: {
+      type: "array",
+      items: { type: "string" },
+      maxItems: 6
+    },
+    technicalHighlights: {
+      type: "array",
+      items: { type: "string" },
+      maxItems: 6
+    },
+    narrativeDirections: {
+      type: "array",
+      items: { type: "string" },
+      maxItems: 4
+    },
+    supportingLinks: {
+      type: "array",
+      items: { type: "string" },
+      maxItems: 4
+    },
+    sourceUrl: { type: "string" }
+  },
+  required: ["summary", "tags", "keyInsights", "sourceUrl"],
+  additionalProperties: false
+}
 
 export function registerAction<TType extends ActionType>(
   type: TType,
@@ -77,6 +139,12 @@ registerAction("structured-prompt", {
   name: "Prompt template",
   description: "Render a prompt template with contextual values",
   run: structuredPromptAction
+})
+
+registerAction("blog-prompt", {
+  name: "Blog prompt",
+  description: "Extract blog-ready research notes from captured content",
+  run: blogPromptAction
 })
 
 registerAction("store-artifact", {
@@ -692,6 +760,54 @@ async function structuredPromptAction({
   }
 }
 
+async function blogPromptAction(
+  args: ActionExecutionArgs<"blog-prompt">
+): Promise<ActionExecutionResult<unknown>> {
+  const baseConfig: BlogPromptConfig = args.step.config ?? ({} as BlogPromptConfig)
+  const overriddenVariables = baseConfig.variables ?? {}
+  const formatVersion = overriddenVariables.formatVersion ?? BLOG_PROMPT_DEFAULT_FORMAT
+  const variables = {
+    ...overriddenVariables,
+    formatVersion
+  }
+
+  const mergedConfig: StructuredPromptConfig = {
+    ...baseConfig,
+    template: baseConfig.template ?? BLOG_PROMPT_DEFAULT_TEMPLATE,
+    schema: baseConfig.schema ?? BLOG_PROMPT_DEFAULT_SCHEMA,
+    variables,
+    outputFormat: baseConfig.outputFormat ?? "text",
+    coerceJsonOutput: baseConfig.coerceJsonOutput ?? true,
+    fallbackToTemplate: baseConfig.fallbackToTemplate ?? true,
+    usePromptApi: baseConfig.usePromptApi ?? true,
+    autoOpenViewer: baseConfig.autoOpenViewer ?? false
+  }
+
+  const structuredArgs = {
+    ...args,
+    step: {
+      ...args.step,
+      type: "structured-prompt" as const,
+      config: mergedConfig
+    }
+  } satisfies ActionExecutionArgs<"structured-prompt">
+
+  const result = await structuredPromptAction(structuredArgs)
+
+  if (!result.meta) {
+    return result
+  }
+
+  return {
+    ...result,
+    meta: {
+      ...result.meta,
+      blogPrompt: true,
+      blogSchemaVersion: formatVersion
+    }
+  }
+}
+
 function renderPromptTemplate(
   template: string,
   replacements: Record<string, unknown>,
@@ -734,14 +850,19 @@ type SchemaHints = {
   stringArrayProps: Set<string>
 }
 
-const KNOWN_STRING_FIELDS = new Set(["summary"])
+const KNOWN_STRING_FIELDS = new Set(["summary", "sourceUrl"])
 const KNOWN_STRING_ARRAY_FIELDS = new Set([
   "highlights",
   "blockers",
   "nextFocus",
   "actionItems",
   "suggestedClarifications",
-  "testPlan"
+  "testPlan",
+  "tags",
+  "keyInsights",
+  "technicalHighlights",
+  "narrativeDirections",
+  "supportingLinks"
 ])
 
 function coerceJsonLike(rawValue: string): CoercedJsonResult {
@@ -830,6 +951,15 @@ function normalizeStructuredOutput(
       draft.modifiedFields.forEach((field) => modified.add(field))
     }
     working.draftPullRequest = draft.value
+  }
+
+  if (Object.prototype.hasOwnProperty.call(working, "draftSections")) {
+    const sections = normalizeDraftSections(working.draftSections)
+    if (sections.changed) {
+      changed = true
+      sections.modifiedFields.forEach((field) => modified.add(field))
+    }
+    working.draftSections = sections.value
   }
 
   if (!changed) {
@@ -962,7 +1092,18 @@ function flattenStringList(value: unknown): string[] {
 
     if (isPlainRecord(entry)) {
       const record = entry as Record<string, unknown>
-      const textKeys = ["text", "title", "label", "name", "summary", "description", "value"]
+      const textKeys = [
+        "text",
+        "title",
+        "label",
+        "name",
+        "summary",
+        "description",
+        "value",
+        "url",
+        "slug",
+        "quote"
+      ]
       const collected = textKeys
         .map((key) => (typeof record[key] === "string" ? (record[key] as string) : null))
         .filter((segment): segment is string => Boolean(segment))
@@ -1104,6 +1245,112 @@ function normalizeDraftPullRequest(value: unknown): NormalizedDraft {
 
   result.modifiedFields = Array.from(new Set(result.modifiedFields))
   return result
+}
+
+type DraftSection = {
+  heading: string
+  bullets: string[]
+}
+
+type NormalizedDraftSections = {
+  value: DraftSection[]
+  changed: boolean
+  modifiedFields: string[]
+}
+
+const MAX_DRAFT_SECTION_COUNT = 6
+const MAX_DRAFT_SECTION_BULLETS = 8
+
+function normalizeDraftSections(value: unknown): NormalizedDraftSections {
+  const modified = new Set<string>()
+  let changed = false
+
+  const rawEntries = Array.isArray(value) ? value : []
+  if (!Array.isArray(value)) {
+    changed = true
+    modified.add("draftSections")
+  }
+
+  const normalized: DraftSection[] = []
+
+  const pushSection = (section: DraftSection) => {
+    normalized.push(section)
+    if (normalized.length > MAX_DRAFT_SECTION_COUNT) {
+      normalized.length = MAX_DRAFT_SECTION_COUNT
+      modified.add("draftSections.length")
+      changed = true
+    }
+  }
+
+  for (const entry of rawEntries) {
+    if (normalized.length >= MAX_DRAFT_SECTION_COUNT) {
+      break
+    }
+
+    if (!isPlainRecord(entry)) {
+      if (typeof entry === "string") {
+        const trimmed = entry.trim()
+        if (trimmed) {
+          pushSection({ heading: trimmed, bullets: [] })
+          modified.add("draftSections.heading")
+          changed = true
+        } else {
+          changed = true
+        }
+      } else if (entry != null) {
+        changed = true
+        modified.add("draftSections")
+      }
+      continue
+    }
+
+    const working = entry as Record<string, unknown>
+    const headingResult = coerceStringField(working.heading)
+    let bulletsResult = coerceStringArrayField(working.bullets)
+    let bullets = bulletsResult.value
+
+    if (bullets.length > MAX_DRAFT_SECTION_BULLETS) {
+      bullets = bullets.slice(0, MAX_DRAFT_SECTION_BULLETS)
+      bulletsResult = { value: bullets, changed: true }
+    }
+
+    const heading = headingResult.value
+    const hasContent = Boolean(heading) || bullets.length > 0
+
+    if (!hasContent) {
+      if (headingResult.changed || bulletsResult.changed) {
+        changed = true
+        modified.add("draftSections")
+      }
+      continue
+    }
+
+    if (
+      headingResult.changed ||
+      typeof working.heading !== "string" ||
+      (typeof working.heading === "string" && working.heading.trim() !== heading)
+    ) {
+      modified.add("draftSections.heading")
+      changed = true
+    }
+
+    if (
+      bulletsResult.changed ||
+      !Array.isArray(working.bullets) ||
+      !arraysShallowEqual(working.bullets, bullets)
+    ) {
+      modified.add("draftSections.bullets")
+      changed = true
+    }
+
+    pushSection({ heading, bullets })
+  }
+
+  return {
+    value: normalized,
+    changed,
+    modifiedFields: Array.from(modified)
+  }
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

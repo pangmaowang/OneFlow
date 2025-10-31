@@ -206,9 +206,57 @@ export const weeklySummaryReport: TaskDefinition = {
   ]
 }
 
-export type PresetId = "daily-dev" | "weekly-summary"
+export const blogResearchCapture: TaskDefinition = {
+  id: "blog-draft",
+  name: "Blog research capture",
+  description: "Clip a page, extract reusable blog notes, and stash them for the next writing sprint.",
+  steps: [
+    {
+      id: "blogSource",
+      type: "read-page",
+      description: "Collect the page content to analyze for the blog brief.",
+      config: {
+        source: "active-tab",
+        fallback:
+          "Title: Building resilient UI systems\nHighlights: layering design tokens, handling async loading states, side effects, and offline fallbacks.",
+        maxLength: 8000
+      }
+    },
+    {
+      id: "blogPrompt",
+      type: "blog-prompt",
+      description: "Distill the captured content into structured blog notes with AI.",
+      config: {
+        variables: {
+          formatVersion: "blog-v3"
+        },
+        systemPrompt:
+          "You are a staff content strategist preparing research notes for a technical blog. Surface practical insights without fabricating details.",
+        autoOpenViewer: false
+      }
+    },
+    {
+      id: "storeBlogNotes",
+      type: "store-artifact",
+      description: "Persist the structured blog notes for later drafting.",
+      config: {
+        artifactType: "blog-research-note",
+        metadata: {
+          presetId: "blog-draft",
+          schemaVersion: "blog-v3"
+        },
+        tags: ["blog", "research", "automation"],
+        parseJson: true,
+        skipWhenEmpty: false
+      }
+    }
+  ]
+}
+
+export type PresetId = "daily-dev" | "weekly-summary" | "blog-draft"
 
 export const PRESET_REGISTRY: Record<PresetId, TaskDefinition> = {
   "daily-dev": dailyDeveloperRecap,
-  "weekly-summary": weeklySummaryReport
+  "weekly-summary": weeklySummaryReport,
+  "blog-draft": blogResearchCapture
 }

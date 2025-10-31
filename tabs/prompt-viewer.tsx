@@ -11,6 +11,7 @@ import {
   ListChecks,
   Shield,
   Sparkles,
+  Tags,
   Target
 } from "lucide-react"
 
@@ -160,6 +161,14 @@ const SECTION_LIBRARY: SectionDescriptor[] = [
     description: "Questions or gaps to resolve before implementation.",
     icon: CircleHelp,
     render: (value) => renderStringList(value, "No clarifications provided."),
+    copyValue: (value) => copyStringList(value)
+  },
+  {
+    key: "tags",
+    title: "Tags",
+    description: "Topic handles to group related research.",
+    icon: Tags,
+    render: (value) => renderStringList(value, "No tags captured."),
     copyValue: (value) => copyStringList(value)
   },
   {
@@ -594,6 +603,11 @@ function buildMarkdownExport(structured: unknown, payload: ViewerPayload | null)
   }
 
   const listSections: Array<{ key: string; title: string }> = [
+    { key: "keyInsights", title: "Key insights" },
+    { key: "technicalHighlights", title: "Technical highlights" },
+    { key: "narrativeDirections", title: "Narrative directions" },
+    { key: "supportingLinks", title: "Supporting links" },
+    { key: "tags", title: "Tags" },
     { key: "highlights", title: "Highlights" },
     { key: "blockers", title: "Blockers" },
     { key: "nextFocus", title: "Next focus" },
@@ -767,9 +781,9 @@ export default function PromptViewer() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background via-background to-muted/30 px-4 py-10 text-foreground md:px-8">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-        <Card className="overflow-hidden border-none bg-gradient-to-br from-primary/10 via-background to-background shadow-xl">
+    <div className="min-h-screen bg-gradient-to-b from-background via-background to-muted/30 px-4 py-10 text-foreground md:px-8 gap-8">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
+        <Card className="overflow-hidden border-none bg-gradient-to-br from-primary/10 via-background to-background shadow-xl ring-1 ring-border/20 ring-offset-2 ring-offset-background">
           <CardHeader className="space-y-4 pb-6">
             <Badge variant="outline" className="w-fit rounded-full uppercase tracking-wide">
               Result snapshot
@@ -802,7 +816,7 @@ export default function PromptViewer() {
         </Card>
 
         {sections.length === 0 ? (
-          <Card className="border-dashed border-border/60 bg-card/80">
+          <Card className="border-dashed border-border/60 bg-card/80 shadow-md ring-1 ring-border/30 ring-offset-2 ring-offset-background">
             <CardHeader>
               <CardTitle className="text-base">No structured result</CardTitle>
               <CardDescription>
@@ -824,7 +838,7 @@ export default function PromptViewer() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-y-6 gap-x-6 md:grid-cols-2 lg:gap-y-8 lg:gap-x-8">
             {sections.map(({ descriptor, value }) => {
               const allowCopy = descriptor.copyValue?.(value)
               const Icon = descriptor.icon
@@ -832,7 +846,7 @@ export default function PromptViewer() {
                 <Card
                   key={descriptor.key}
                   className={cn(
-                    "border border-border/60 bg-card/90 shadow-sm transition hover:border-primary/30 hover:shadow",
+                    "h-full rounded-xl border border-border/70 bg-card/95 shadow-md ring-1 ring-border/30 ring-offset-2 ring-offset-background transition-shadow duration-200 hover:border-primary/40 hover:ring-primary/30 hover:shadow-lg",
                     descriptor.key === "summary" ? "md:col-span-2" : undefined
                   )}
                 >

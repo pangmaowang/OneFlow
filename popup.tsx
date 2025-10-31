@@ -21,6 +21,7 @@ import {
   CalendarRange,
   CheckCircle2,
   Clock3,
+  Feather,
   Loader2,
   PlusCircle,
   Sparkles,
@@ -249,6 +250,14 @@ const QUICK_ACTIONS: QuickAction[] = [
     className: "border-amber-300/60 bg-amber-200/15 text-amber-700 hover:bg-amber-200/25",
     iconClassName: "text-amber-500",
     presetId: "weekly-summary"
+  },
+  {
+    label: "Blog research kit",
+    description: "Clip any page and capture summary, tags, insights, technical angles, and source links for your blog.",
+    icon: Feather,
+    className: "border-sky-300/60 bg-sky-200/15 text-sky-800 hover:bg-sky-200/20",
+    iconClassName: "text-sky-500",
+    presetId: "blog-draft"
   },
   {
     label: "Add custom flow",

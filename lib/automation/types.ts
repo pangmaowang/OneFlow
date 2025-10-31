@@ -31,6 +31,12 @@ export type CollectWeeklySummaryConfig = {
   maxEntries?: number
 }
 
+export type BlogPromptConfig = Omit<StructuredPromptConfig, "template" | "schema" | "variables"> & {
+  template?: StructuredPromptConfig["template"]
+  schema?: StructuredPromptConfig["schema"]
+  variables?: StructuredPromptConfig["variables"]
+}
+
 export type StructuredPromptConfig = {
   /** Prompt template that supports {{placeholders}}. */
   template: string
@@ -72,12 +78,14 @@ export type ActionType =
   | "structured-prompt"
   | "store-artifact"
   | "collect-weekly-summary"
+  | "blog-prompt"
 
 export interface ActionTypeConfigMap {
   "read-page": ReadPageConfig
   "structured-prompt": StructuredPromptConfig
   "store-artifact": StoreArtifactConfig
   "collect-weekly-summary": CollectWeeklySummaryConfig
+  "blog-prompt": BlogPromptConfig
 }
 
 type ActionStepBase<TType extends ActionType> = {
