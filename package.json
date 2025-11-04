@@ -1,7 +1,7 @@
 {
   "name": "oneflow",
   "displayName": "OneFlow",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Automate your workflow from tasks to content to progress - all in one click. Spark productivity across your day.",
   "author": "Osito Wang",
   "scripts": {
