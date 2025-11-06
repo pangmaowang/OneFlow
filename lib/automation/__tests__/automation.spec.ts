@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest"
+import { describe, it, expect, afterEach, vi } from "vitest"
 
 import { registerAction, requireAction } from "../actions"
 import { runTask } from "../runner"
@@ -533,6 +533,61 @@ describe("structured-prompt normalization", () => {
     )
     expect(meta?.parsedSource).toBe("normalized")
   })
+
+  it("falls back to the rendered template when the Prompt API is missing", async () => {
+    const action = requireAction("structured-prompt")
+
+    const result = await action.run({
+      step: {
+        type: "structured-prompt",
+        config: {
+          template: "Status: {{input}}",
+          usePromptApi: true,
+          fallbackToTemplate: true,
+          coerceJsonOutput: true
+        }
+      },
+      input: "Build passed",
+      context: {},
+      cache: new Map()
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.output).toBe("Status: Build passed")
+
+    const meta = (result.meta ?? {}) as Record<string, unknown>
+    expect(meta.usedPromptApi).toBe(false)
+    expect(meta.fallbackUsed).toBe(true)
+    expect(meta.fallbackReason).toBe("namespace-missing")
+    expect(meta.rawLength).toBeGreaterThan(0)
+  })
+
+  it("surfaces an error when the Prompt API is unavailable and fallback is disabled", async () => {
+    const action = requireAction("structured-prompt")
+
+    const result = await action.run({
+      step: {
+        type: "structured-prompt",
+        config: {
+          template: "Status: {{input}}",
+          usePromptApi: true,
+          fallbackToTemplate: false,
+          coerceJsonOutput: false
+        }
+      },
+      input: "Build failed",
+      context: {},
+      cache: new Map()
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.error).toBeInstanceOf(Error)
+    expect(result.error?.message).toContain("Chrome Prompt API is not available")
+
+    const meta = (result.meta ?? {}) as Record<string, unknown>
+    expect(meta.usedPromptApi).toBe(true)
+    expect(meta.availability).toBe("missing")
+  })
 })
 
 describe("store-artifact action", () => {
@@ -594,6 +649,52 @@ describe("store-artifact action", () => {
 
     const stored = await listArtifacts()
     expect(stored.length).toBe(0)
+  })
+})
+
+describe("collection actions", () => {
+  afterEach(async () => {
+    await clearArtifacts()
+  })
+
+  it("fails when no daily recaps are present in the requested window", async () => {
+    const action = requireAction("collect-weekly-summary")
+
+    const result = await action.run({
+      step: {
+        type: "collect-weekly-summary",
+        config: {
+          days: 3
+        }
+      },
+      input: undefined,
+      context: {},
+      cache: new Map()
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.meta).toMatchObject({ entryCount: 0, staleCount: 0 })
+    expect(result.error).toBeInstanceOf(Error)
+  })
+
+  it("fails when no blog research notes fall within the cutoff", async () => {
+    const action = requireAction("collect-blog-digest")
+
+    const result = await action.run({
+      step: {
+        type: "collect-blog-digest",
+        config: {
+          days: 2
+        }
+      },
+      input: undefined,
+      context: {},
+      cache: new Map()
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.meta).toMatchObject({ entryCount: 0, staleCount: 0 })
+    expect(result.error).toBeInstanceOf(Error)
   })
 })
 
@@ -690,5 +791,53 @@ describe("workflow manager", () => {
 
     expect(cancelledRun?.status).toBe("cancelled")
     expect(cancelledRun?.result).toBeUndefined()
+  })
+
+  it("aborts in-flight runs when cancelled", async () => {
+    const onError = vi.fn()
+
+    registerAction("structured-prompt", {
+      ...originalStructured,
+      run(args) {
+        return new Promise((_, reject) => {
+          const timer = setTimeout(() => {
+            reject(new Error("timeout"))
+          }, 200)
+
+          args.signal?.addEventListener(
+            "abort",
+            () => {
+              clearTimeout(timer)
+              reject(new Error("aborted"))
+            },
+            { once: true }
+          )
+        })
+      },
+    })
+
+    let idCounter = 0
+    const manager = new WorkflowManager({
+      concurrency: 1,
+      idGenerator: () => `run-${idCounter++}`,
+    })
+
+    const runId = manager.enqueue(asyncTask, {
+      initialInput: "first",
+      onError,
+    })
+
+    await waitFor(() => manager.getRuns().some((run) => run.id === runId && run.status === "running"))
+
+    const cancelled = manager.cancel(runId)
+    expect(cancelled).toBe(true)
+
+    await waitFor(() => manager.getRuns().some((run) => run.id === runId && run.status === "cancelled"))
+
+    const runRecord = manager.getRuns().find((run) => run.id === runId)
+    expect(runRecord?.status).toBe("cancelled")
+    expect(runRecord?.error).toBeInstanceOf(Error)
+    expect(runRecord?.error?.message).toBe("aborted")
+    expect(onError).toHaveBeenCalledTimes(1)
   })
 })
