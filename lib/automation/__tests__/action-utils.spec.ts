@@ -162,10 +162,10 @@ describe("structured normalization", () => {
     expect(Object.keys(draft)).not.toContain("extra")
 
     const sections = value.draftSections as Array<{ heading: string; bullets: string[] }>
-  expect(sections).toHaveLength(MAX_DRAFT_SECTION_COUNT)
-  expect(sections[0]).toEqual({ heading: "Highlights", bullets: ["Item one", "Item two"] })
-  expect(sections[1]).toEqual({ heading: "Loose heading", bullets: [] })
-  expect(sections[2].bullets).toHaveLength(MAX_DRAFT_SECTION_BULLETS)
+    expect(sections).toHaveLength(MAX_DRAFT_SECTION_COUNT)
+    expect(sections[0]).toEqual({ heading: "Highlights", bullets: ["Item one", "Item two"] })
+    expect(sections[1]).toEqual({ heading: "Loose heading", bullets: [] })
+    expect(sections[2].bullets).toHaveLength(MAX_DRAFT_SECTION_BULLETS)
 
     const modified = new Set(normalized.modifiedFields)
     const requiredFields = [
