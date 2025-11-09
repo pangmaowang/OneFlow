@@ -23,9 +23,7 @@ import {
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { storageGet, storageRemove } from "@/lib/chrome-storage"
 import { createScopedDebugger } from "@/lib/debug"
 import { cn } from "@/lib/utils"
@@ -65,8 +63,8 @@ function CodeSurface({
   return (
     <pre
       className={cn(
-        "max-h-[60vh] overflow-auto rounded-lg px-4 py-3 text-xs leading-relaxed text-muted-foreground",
-        withBorder ? "border border-border/60 bg-muted/40" : "bg-transparent",
+        "max-h-[60vh] overflow-auto rounded-lg px-4 py-3 text-xs leading-relaxed text-gray-700 dark:text-gray-200",
+        withBorder ? "border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900" : "bg-transparent",
         className
       )}
     >
@@ -168,50 +166,57 @@ const DIGEST_TOTAL_LABELS: Record<string, string> = {
 function renderDigestSnapshot(value: unknown) {
   const snapshot = normalizeDigestSnapshot(value)
   if (!snapshot) {
-    return <p className="text-sm text-muted-foreground">No timeframe details available.</p>
+    return <p className="text-sm text-gray-500 dark:text-gray-400">No timeframe details available.</p>
   }
 
   const renderDateChip = (label?: string) =>
     label ? (
-      <span className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/80 px-2.5 py-1 text-xs font-medium text-foreground">
-        <CalendarDays className="h-3.5 w-3.5 text-muted-foreground/70" />
-        {label}
+      <span className="inline-flex items-start gap-2 rounded border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 dark:border-gray-700 dark:text-gray-300">
+        <CalendarDays className="mt-0.5 h-3.5 w-3.5 text-gray-500 dark:text-gray-400" />
+        <span className="pt-0.5 leading-snug">{label}</span>
       </span>
     ) : null
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-muted/15 px-4 py-3">
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground/80">
-        {snapshot.label ? (
-          <span className="font-semibold uppercase tracking-wide text-muted-foreground">
-            {snapshot.label}
-          </span>
-        ) : null}
-        <div className="flex flex-wrap items-center gap-1 text-sm">
-          {renderDateChip(snapshot.startLabel)}
-          {snapshot.startLabel && snapshot.endLabel ? (
-            <ArrowRight className="h-3 w-3 text-muted-foreground/50" />
-          ) : null}
-          {renderDateChip(snapshot.endLabel)}
-          {!snapshot.startLabel && !snapshot.endLabel && snapshot.detail ? (
-            <span className="text-sm text-muted-foreground">{snapshot.detail}</span>
-          ) : null}
+    <div className="space-y-4 text-sm">
+      {snapshot.label ? (
+        <div className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+          {snapshot.label}
         </div>
+      ) : snapshot.detail ? (
+        <div className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+          {snapshot.detail}
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-3 text-gray-700 dark:text-gray-300">
+        {snapshot.startLabel || snapshot.endLabel ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {renderDateChip(snapshot.startLabel)}
+            {snapshot.startLabel && snapshot.endLabel ? (
+              <ArrowRight className="h-4 w-4 text-gray-400" />
+            ) : null}
+            {renderDateChip(snapshot.endLabel)}
+          </div>
+        ) : null}
+        {!snapshot.startLabel && !snapshot.endLabel && snapshot.detail ? (
+          <span>{snapshot.detail}</span>
+        ) : null}
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {snapshot.stats.map((stat) => (
-          <Badge
-            key={stat.key}
-            variant="secondary"
-            className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/90 px-3 py-1 text-xs font-semibold text-foreground"
-          >
-            <span className="text-base leading-none">{stat.value}</span>
-            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
-              {stat.label}
+      {snapshot.stats.length ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {snapshot.stats.map((stat) => (
+            <span
+              key={stat.key}
+              className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+            >
+              <span className="mr-1.5 text-base font-bold text-gray-800 dark:text-gray-100">
+                {stat.value}
+              </span>
+              {stat.label.toUpperCase()}
             </span>
-          </Badge>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -333,7 +338,7 @@ const SECTION_LIBRARY: SectionDescriptor[] = [
     icon: FileText,
     render: (value) =>
       typeof value === "string" ? (
-        <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{value}</p>
+  <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700 dark:text-gray-300">{value}</p>
       ) : null,
     copyValue: (value) => (typeof value === "string" && value ? value : null)
   },
@@ -442,6 +447,21 @@ const SECTION_LIBRARY: SectionDescriptor[] = [
     copyValue: (value) => copyLinkList(value)
   }
 ]
+
+const WIDE_SECTION_KEYS = new Set([
+  "digestSnapshot",
+  "summary",
+  "topTags",
+  "collections",
+  "spotlightArticles",
+  "dailyBreakdown",
+  "highlights",
+  "blockers",
+  "nextFocus",
+  "actionItems",
+  "suggestedClarifications",
+  "testPlan"
+])
 
 function resolveStructuredPayload(payload: ViewerPayload | null) {
   if (!payload) {
@@ -553,11 +573,11 @@ function buildSections(parsed: unknown) {
 function renderStringList(value: unknown, emptyCopy: string) {
   const entries = normalizeStringList(value)
   if (entries.length === 0) {
-    return <p className="text-sm text-muted-foreground">{emptyCopy}</p>
+    return <p className="text-sm text-gray-500 dark:text-gray-400">{emptyCopy}</p>
   }
 
   return (
-    <ul className="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
+    <ul className="list-disc space-y-2 pl-5 text-sm text-gray-700 dark:text-gray-300">
       {entries.map((item, index) => (
         <li key={`${item}_${index}`}>{item}</li>
       ))}
@@ -602,18 +622,21 @@ function normalizeTagStats(value: unknown): TagStat[] {
 function renderTagStats(value: unknown) {
   const stats = normalizeTagStats(value)
   if (stats.length === 0) {
-    return <p className="text-sm text-muted-foreground">No tag activity recorded.</p>
+    return <p className="text-sm text-gray-500 dark:text-gray-400">No tag activity recorded.</p>
   }
 
   return (
     <div className="flex flex-wrap gap-2">
       {stats.map((stat) => (
-        <Badge key={stat.tag} variant="secondary" className="flex items-center gap-1 text-xs">
-          <span>#{stat.tag}</span>
-          <span className="rounded bg-background px-1 text-[10px] font-semibold text-foreground/70">
+        <span
+          key={stat.tag}
+          className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+        >
+          #{stat.tag}
+          <span className="ml-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-gray-200 text-[10px] font-bold text-gray-600 dark:bg-gray-700 dark:text-gray-300">
             {stat.count}
           </span>
-        </Badge>
+        </span>
       ))}
     </div>
   )
@@ -689,7 +712,7 @@ function normalizeSpotlightArticles(value: unknown): SpotlightArticle[] {
 function renderSpotlightArticles(value: unknown) {
   const articles = normalizeSpotlightArticles(value)
   if (articles.length === 0) {
-    return <p className="text-sm text-muted-foreground">No spotlight articles selected.</p>
+    return <p className="text-sm text-gray-500 dark:text-gray-400">No spotlight articles selected.</p>
   }
 
   const resolveHost = (url?: string) => {
@@ -705,11 +728,11 @@ function renderSpotlightArticles(value: unknown) {
   }
 
   const renderDetailList = (label: string, items: string[], keyPrefix: string) => (
-    <div className="space-y-2">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
+    <div className="border-t border-gray-200 pt-4 dark:border-gray-800">
+      <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
         {label}
-      </p>
-      <ul className="grid gap-2 rounded-md border border-border/40 bg-muted/10 p-3 text-sm leading-relaxed text-muted-foreground">
+      </h4>
+      <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
         {items.map((item, index) => (
           <li key={`${keyPrefix}-${index}`}>{item}</li>
         ))}
@@ -718,7 +741,7 @@ function renderSpotlightArticles(value: unknown) {
   )
 
   return (
-    <div className="grid gap-4">
+    <div className="space-y-6">
       {articles.map((article) => {
         const host = resolveHost(article.sourceUrl)
         const links = article.supportingLinks.length
@@ -728,90 +751,64 @@ function renderSpotlightArticles(value: unknown) {
           : []
 
         return (
-          <Card key={article.id} className="border-border/60 bg-card/70 shadow-sm">
-            <CardHeader className="space-y-3 pb-0">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="space-y-2">
-                  <CardTitle className="text-base font-semibold leading-relaxed text-foreground">
-                    {article.summary}
-                  </CardTitle>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    {article.date ? (
-                      <span className="rounded-full bg-muted px-2 py-0.5 font-medium uppercase tracking-wide text-muted-foreground/80">
-                        {article.date}
-                      </span>
-                    ) : null}
-                    {host ? (
-                      <span className="rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground/80">
-                        {host}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-                {article.sourceUrl ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8 shrink-0 gap-1 text-xs"
-                    onClick={() => {
-                      if (typeof window !== "undefined" && typeof window.open === "function") {
-                        window.open(article.sourceUrl, "_blank", "noopener,noreferrer")
-                      }
-                    }}
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    Visit
-                  </Button>
-                ) : null}
+          <div
+            key={article.id}
+            className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900/50"
+          >
+            <div className="space-y-3">
+              <p className="text-sm leading-relaxed text-gray-800 dark:text-gray-300">
+                {article.summary}
+              </p>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                {article.date ? <span>{article.date}</span> : null}
+                {host ? <span>· {host}</span> : null}
               </div>
+            </div>
 
-              {article.tags.length ? (
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {article.tags.map((tag) => (
-                    <Badge
-                      key={`${article.id}-${tag}`}
-                      variant="secondary"
-                      className="border border-border/60 bg-background/80 px-2 py-0.5 text-[11px] font-medium"
-                    >
-                      #{tag}
-                    </Badge>
+            {article.tags.length ? (
+              <div className="flex flex-wrap gap-2">
+                {article.tags.map((tag) => (
+                  <span
+                    key={`${article.id}-${tag}`}
+                    className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+                  >
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+
+            {article.keyInsights.length
+              ? renderDetailList("Key insights", article.keyInsights, `${article.id}-insight`)
+              : null}
+
+            {article.technicalHighlights.length
+              ? renderDetailList("Technical takeaways", article.technicalHighlights, `${article.id}-tech`)
+              : null}
+
+            {links.length ? (
+              <div className="border-t border-gray-200 pt-4 dark:border-gray-800">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  Links
+                </h4>
+                <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-gray-700 dark:text-gray-300">
+                  {links.map((link, index) => (
+                    <li key={`${article.id}-link-${index}`}>
+                      <a
+                        href={link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-start gap-2 text-gray-800 underline decoration-dotted underline-offset-4 hover:text-primary dark:text-gray-200"
+                      >
+                        <ExternalLink className="mt-0.5 h-4 w-4" />
+                        <span className="pt-0.5 leading-tight">{link}</span>
+                      </a>
+                    </li>
                   ))}
-                </div>
-              ) : null}
-            </CardHeader>
-
-            <CardContent className="grid gap-4 border-t border-border/40 pt-4 text-sm leading-relaxed text-muted-foreground">
-              {article.keyInsights.length ? renderDetailList("Key insights", article.keyInsights, `${article.id}-insight`) : null}
-
-              {article.technicalHighlights.length
-                ? renderDetailList("Technical highlights", article.technicalHighlights, `${article.id}-tech`)
-                : null}
-
-              {links.length ? (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
-                    Supporting links
-                  </p>
-                  <ul className="grid gap-2">
-                    {links.map((link, index) => (
-                      <li key={`${article.id}-link-${index}`} className="break-words">
-                        <a
-                          href={link}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-2 text-sm text-foreground underline decoration-dotted underline-offset-4 transition-colors hover:text-primary"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                          <span className="break-words">{link}</span>
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
+                </ul>
+              </div>
+            ) : null}
+          </div>
         )
       })}
     </div>
@@ -944,77 +941,68 @@ function normalizeBlogCollections(value: unknown): BlogCollection[] {
 function renderBlogCollections(value: unknown) {
   const collections = normalizeBlogCollections(value)
   if (collections.length === 0) {
-    return <p className="text-sm text-muted-foreground">No tag collections available.</p>
-  }
-
-  const renderPanel = (collection: BlogCollection) => (
-    <div className="space-y-4">
-      {collection.synopsis ? (
-        <p className="text-sm leading-relaxed text-muted-foreground">{collection.synopsis}</p>
-      ) : null}
-
-      <div className="space-y-3">
-        {collection.entries.map((entry) => (
-          <div
-            key={entry.id}
-            className="rounded-lg border border-border/60 bg-background/70 p-3 shadow-sm"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-medium text-foreground">{entry.summary}</p>
-              {entry.dateLabel ? (
-                <span className="text-[11px] uppercase tracking-wide text-muted-foreground/70">
-                  {entry.dateLabel}
-                </span>
-              ) : null}
-            </div>
-            {entry.keyInsights.length ? (
-              <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
-                {entry.keyInsights.map((item, index) => (
-                  <li key={`${entry.id}-insight-${index}`}>{item}</li>
-                ))}
-              </ul>
-            ) : null}
-            {entry.supportingLinks.length ? (
-              <ul className="mt-2 space-y-1 text-xs">
-                {entry.supportingLinks.map((link, index) => (
-                  <li key={`${entry.id}-link-${index}`}>
-                    <a
-                      href={link}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-foreground underline decoration-dotted underline-offset-2"
-                    >
-                      {link}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-
-  if (collections.length === 1) {
-    return renderPanel(collections[0])
+    return <p className="text-sm text-gray-500 dark:text-gray-400">No tag collections available.</p>
   }
 
   return (
-    <Tabs defaultValue={collections[0].id} className="w-full">
-      <TabsList className="flex flex-wrap gap-2 rounded-xl bg-muted/70 p-1">
-        {collections.map((collection) => (
-          <TabsTrigger key={collection.id} value={collection.id} className="px-3 py-1 text-xs">
-            {collection.label}
-          </TabsTrigger>
-        ))}
-      </TabsList>
+    <div className="space-y-6">
       {collections.map((collection) => (
-        <TabsContent key={collection.id} value={collection.id}>
-          {renderPanel(collection)}
-        </TabsContent>
+        <div
+          key={collection.id}
+          className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900"
+        >
+          <div className="flex flex-wrap items-start gap-3 border-b border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-800 dark:bg-gray-900/60">
+            <span className="inline-flex items-center gap-2 rounded-full bg-gray-900/10 px-4 py-1.5 text-sm font-semibold text-gray-800 shadow-sm ring-1 ring-gray-900/10 dark:bg-gray-50/10 dark:text-gray-100 dark:ring-gray-100/10">
+              <span className="text-base leading-none">#{collection.tag}</span>
+            </span>
+            {collection.synopsis ? (
+              <p className="text-sm text-gray-700 dark:text-gray-300">{collection.synopsis}</p>
+            ) : null}
+          </div>
+
+          <div className="space-y-3 p-4">
+            {collection.entries.map((entry) => (
+              <div
+                key={entry.id}
+                className="rounded-lg border border-dashed border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900/40"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{entry.summary}</p>
+                  {entry.dateLabel ? (
+                    <span className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                      {entry.dateLabel}
+                    </span>
+                  ) : null}
+                </div>
+                {entry.keyInsights.length ? (
+                  <ul className="mt-3 list-disc space-y-2 pl-5 text-xs text-gray-700 dark:text-gray-300">
+                    {entry.keyInsights.map((item, index) => (
+                      <li key={`${entry.id}-insight-${index}`}>{item}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {entry.supportingLinks.length ? (
+                  <ul className="mt-3 list-disc space-y-2 pl-5 text-xs">
+                    {entry.supportingLinks.map((link, index) => (
+                      <li key={`${entry.id}-link-${index}`}>
+                        <a
+                          href={link}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-gray-700 underline decoration-dotted underline-offset-2 hover:text-primary dark:text-gray-300"
+                        >
+                          {link}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
       ))}
-    </Tabs>
+    </div>
   )
 }
 
@@ -1050,18 +1038,18 @@ function copyBlogCollections(value: unknown) {
 function renderLinkList(value: unknown) {
   const links = normalizeStringList(value)
   if (links.length === 0) {
-    return <p className="text-sm text-muted-foreground">No supporting links provided.</p>
+    return <p className="text-sm text-gray-500 dark:text-gray-400">No supporting links provided.</p>
   }
 
   return (
-    <ul className="space-y-2 text-sm">
+    <ul className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
       {links.map((link, index) => (
         <li key={`${link}-${index}`}>
           <a
             href={link}
             target="_blank"
             rel="noreferrer"
-            className="text-foreground underline decoration-dotted underline-offset-2"
+            className="underline decoration-dotted underline-offset-2 hover:text-primary"
           >
             {link}
           </a>
@@ -1119,30 +1107,34 @@ function normalizeStringList(value: unknown): string[] {
 
 function renderDynamicValue(value: unknown, depth = 0): React.ReactNode {
   if (value === null || value === undefined) {
-    return <p className="text-sm text-muted-foreground">—</p>
+    return <p className="text-sm text-gray-500 dark:text-gray-400">—</p>
   }
 
   if (typeof value === "string") {
-    return <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{value}</p>
+    return (
+      <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+        {value}
+      </p>
+    )
   }
 
   if (typeof value === "number" || typeof value === "boolean") {
     return (
-      <Badge variant="outline" className="text-xs">
+      <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300">
         {String(value)}
-      </Badge>
+      </span>
     )
   }
 
   if (Array.isArray(value)) {
     if (value.length === 0) {
-      return <p className="text-sm text-muted-foreground">(empty list)</p>
+      return <p className="text-sm text-gray-500 dark:text-gray-400">(empty list)</p>
     }
 
     const primitives = value.every(isPrimitive)
     if (primitives) {
       return (
-        <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+        <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700 dark:text-gray-300">
           {value.map((item, index) => (
             <li key={`${item}_${index}`}>{String(item)}</li>
           ))}
@@ -1156,11 +1148,11 @@ function renderDynamicValue(value: unknown, depth = 0): React.ReactNode {
           <div
             key={index}
             className={cn(
-              "rounded-lg border border-border/60 bg-muted/30 p-3",
-              depth > 0 ? "bg-muted/20" : undefined
+              "rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900/40",
+              depth > 0 ? "bg-gray-100 dark:bg-gray-900/60" : undefined
             )}
           >
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Item {index + 1}
             </p>
             <div className="mt-2 space-y-2">
@@ -1175,7 +1167,7 @@ function renderDynamicValue(value: unknown, depth = 0): React.ReactNode {
   if (isPlainRecord(value)) {
     const entries = Object.entries(value)
     if (entries.length === 0) {
-      return <p className="text-sm text-muted-foreground">(empty object)</p>
+      return <p className="text-sm text-gray-500 dark:text-gray-400">(empty object)</p>
     }
 
     return (
@@ -1184,11 +1176,11 @@ function renderDynamicValue(value: unknown, depth = 0): React.ReactNode {
           <div
             key={key}
             className={cn(
-              "rounded-md border border-border/60 bg-muted/30 p-3",
-              depth > 0 ? "bg-background/70" : undefined
+              "rounded-md border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900/40",
+              depth > 0 ? "bg-gray-100/70 dark:bg-gray-900/70" : undefined
             )}
           >
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
               {formatKeyLabel(key)}
             </p>
             <div className="mt-1 space-y-1">
@@ -1521,90 +1513,88 @@ export default function PromptViewer() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background via-background to-muted/30 px-4 py-10 text-foreground md:px-8 gap-8">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-        <Card className="overflow-hidden border-none bg-gradient-to-br from-primary/10 via-background to-background shadow-xl ring-1 ring-border/20 ring-offset-2 ring-offset-background">
-          <CardHeader className="space-y-4 pb-6">
-            <Badge variant="outline" className="w-fit rounded-full uppercase tracking-wide">
-              Result snapshot
-            </Badge>
-            <div className="space-y-2">
-              <CardTitle className="text-3xl font-semibold tracking-tight">Automation playback</CardTitle>
-              <CardDescription className="max-w-2xl text-base leading-relaxed text-muted-foreground">
-                Skim the structured recap without digging through raw notes—the viewer keeps the highlights, risks, and next moves front and center.
-              </CardDescription>
-              <p className="text-xs uppercase tracking-wide text-muted-foreground/80">
-                {payload?.meta?.taskName ?? "Automation output"}
-                {payload?.createdAt ? ` · ${formatDate(payload.createdAt)}` : null}
+    <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-50">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-10 sm:px-6 lg:px-8">
+        <section className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+          <div className="space-y-4">
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Result snapshot
               </p>
-              {payload ? (
-                <div className="flex flex-wrap gap-2 pt-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={handleExportMarkdown}
-                  >
-                    <FileDown className="h-4 w-4" aria-hidden="true" />
-                    <span className="text-xs font-semibold uppercase tracking-wide">Download report</span>
-                  </Button>
-                </div>
-              ) : null}
+              <h1 className="text-2xl font-semibold md:text-3xl">Automation playback</h1>
+              <p className="max-w-3xl text-sm leading-relaxed text-gray-600 dark:text-gray-400">
+                Skim the structured recap without digging through raw notes—the viewer keeps the highlights, risks, and next moves front and center.
+              </p>
             </div>
-          </CardHeader>
-        </Card>
+            <p className="text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">
+              {payload?.meta?.taskName ?? "Automation output"}
+              {payload?.createdAt ? ` · ${formatDate(payload.createdAt)}` : null}
+            </p>
+            {payload ? (
+              <button
+                type="button"
+                onClick={handleExportMarkdown}
+                className="inline-flex items-start gap-2 rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white hover:bg-gray-800 dark:bg-gray-50 dark:text-gray-900 dark:hover:bg-gray-200 dark:focus:ring-gray-100 dark:focus:ring-offset-gray-900"
+              >
+                <FileDown className="mt-0.5 h-4 w-4" aria-hidden="true" />
+                <span className="pt-0.5 leading-tight">Download report</span>
+              </button>
+            ) : null}
+          </div>
+        </section>
 
         {sections.length === 0 ? (
-          <Card className="border-dashed border-border/60 bg-card/80 shadow-md ring-1 ring-border/30 ring-offset-2 ring-offset-background">
-            <CardHeader>
-              <CardTitle className="text-base">No structured result</CardTitle>
-              <CardDescription>
-                The automation returned data that doesn&apos;t map to the usual sections.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                Re-run the flow or tweak your prompt so it emits structured fields like summary, highlights, or action items.
-              </p>
-              {payload?.raw ? (
-                <>
-                  <p className="mt-3 text-xs uppercase tracking-wide text-muted-foreground/70">
-                    Raw output
-                  </p>
-                  <CodeSurface value={payload.raw} className="mt-1" />
-                </>
-              ) : null}
-            </CardContent>
-          </Card>
+          <section className="rounded-lg border border-dashed border-gray-300 bg-white p-6 text-gray-700 shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
+            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+              No structured result
+            </h2>
+            <p className="mt-2 text-sm">
+              The automation returned data that doesn&apos;t map to the usual sections.
+            </p>
+            <p className="mt-4 text-sm">
+              Re-run the flow or tweak your prompt so it emits structured fields like summary, highlights, or action items.
+            </p>
+            {payload?.raw ? (
+              <div className="mt-6 space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  Raw output
+                </p>
+                <CodeSurface value={payload.raw} className="mt-1" />
+              </div>
+            ) : null}
+          </section>
         ) : (
-          <div className="grid grid-cols-1 gap-y-6 gap-x-6 md:grid-cols-2 lg:gap-y-8 lg:gap-x-8">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             {sections.map(({ descriptor, value }) => {
               const allowCopy = descriptor.copyValue?.(value)
               const Icon = descriptor.icon
+              const layoutClass = WIDE_SECTION_KEYS.has(descriptor.key)
+                ? "lg:col-span-2"
+                : "lg:col-span-1"
+
               return (
-                <Card
+                <section
                   key={descriptor.key}
                   className={cn(
-                    "h-full rounded-xl border border-border/70 bg-card/95 shadow-md ring-1 ring-border/30 ring-offset-2 ring-offset-background transition-shadow duration-200 hover:border-primary/40 hover:ring-primary/30 hover:shadow-lg",
-                    descriptor.key === "summary" ? "md:col-span-2" : undefined
+                    "relative rounded-lg border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900",
+                    layoutClass
                   )}
                 >
-                  <CardHeader className="flex flex-row items-start justify-between gap-4 pb-4">
-                    <div className="flex items-start gap-2">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-4">
                       {Icon ? (
-                        <span className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary">
-                          <Icon className="h-4 w-4" aria-hidden="true" />
+                        <span className="flex h-10 w-10 items-start justify-center rounded-full bg-gray-100 pt-1 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                          <Icon className="h-5 w-5" aria-hidden="true" />
                         </span>
                       ) : null}
-                      <div>
-                        <CardTitle className="text-base font-semibold">
+                      <div className="space-y-1">
+                        <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
                           {descriptor.title}
-                        </CardTitle>
+                        </h2>
                         {descriptor.description ? (
-                          <CardDescription className="text-xs text-muted-foreground">
+                          <p className="text-sm text-gray-500 dark:text-gray-400">
                             {descriptor.description}
-                          </CardDescription>
+                          </p>
                         ) : null}
                       </div>
                     </div>
@@ -1613,14 +1603,16 @@ export default function PromptViewer() {
                         target={descriptor.key}
                         copyState={copyState}
                         onCopy={() => copy(descriptor.key, allowCopy)}
-                        size="sm"
+                        className="self-start"
                       >
                         Copy
                       </CopyButton>
                     ) : null}
-                  </CardHeader>
-                  <CardContent>{descriptor.render(value)}</CardContent>
-                </Card>
+                  </div>
+                  <div className="mt-6 border-t border-gray-200 pt-6 dark:border-gray-800">
+                    {descriptor.render(value)}
+                  </div>
+                </section>
               )
             })}
           </div>
@@ -1635,8 +1627,6 @@ type CopyButtonProps = {
   copyState: CopyState
   onCopy: () => void
   children: React.ReactNode
-  variant?: React.ComponentProps<typeof Button>["variant"]
-  size?: React.ComponentProps<typeof Button>["size"]
   className?: string
 }
 
@@ -1645,24 +1635,26 @@ function CopyButton({
   copyState,
   onCopy,
   children,
-  variant = "ghost",
-  size = "default",
   className
 }: CopyButtonProps) {
   const status = copyState.target === target ? copyState.status : "idle"
   const Icon = status === "copied" ? Check : Copy
-  const label = status === "copied" ? "Copied" : children
+  const label = status === "copied" ? "COPIED" : String(children)
 
   return (
-    <Button
+    <button
       type="button"
-      variant={variant}
-      size={size}
-      className={cn("gap-1.5", status === "copied" ? "text-emerald-600" : undefined, className)}
       onClick={onCopy}
+      className={cn(
+        "inline-flex items-start gap-2 rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wider transition focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-2 focus:ring-offset-white hover:text-gray-700 dark:focus:ring-gray-600 dark:focus:ring-offset-gray-900",
+        status === "copied"
+          ? "text-emerald-600 dark:text-emerald-400"
+          : "text-gray-500 dark:text-gray-400",
+        className
+      )}
     >
-      <Icon className="h-4 w-4" aria-hidden="true" />
-      <span className="text-xs font-semibold uppercase tracking-wide">{label}</span>
-    </Button>
+      <Icon className="mt-0.5 h-4 w-4" aria-hidden="true" />
+      <span className="pt-0.5 leading-tight">{label}</span>
+    </button>
   )
 }
